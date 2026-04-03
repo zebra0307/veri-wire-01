@@ -1,0 +1,251 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomStatus {
+  OPEN
+  INVESTIGATING
+  PENDING_VERDICT
+  CLOSED
+}
+
+enum Verdict {
+  TRUE
+  FALSE
+  UNCLEAR
+}
+
+enum Confidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum Stance {
+  SUPPORTS
+  REFUTES
+  CONTEXT
+}
+
+enum EvidenceType {
+  OBSERVATION
+  INFERENCE
+  SPECULATION
+}
+
+enum GlobalRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum RoomRole {
+  OWNER
+  CONTRIBUTOR
+  VOTER
+  OBSERVER
+}
+
+model User {
+  id                 String       @id @default(cuid())
+  name               String?
+  email              String?      @unique
+  emailVerified      DateTime?
+  image              String?
+  contributorScore   Float        @default(1.0)
+  roomsContributed   Int          @default(0)
+  roomsCreated       Int          @default(0)
+  evidenceSubmitted  Int          @default(0)
+  correctVerdictRate Float        @default(0)
+  role               GlobalRole   @default(USER)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  accounts           Account[]
+  sessions           Session[]
+  roomsOwned         Room[]       @relation("RoomCreator")
+  memberships        RoomMember[]
+  evidence           Evidence[]
+  votes              Vote[]
+  auditLogs          AuditLog[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Room {
+  id              String        @id
+  claimRaw        String
+  claimNormalized String
+  status          RoomStatus    @default(OPEN)
+  verdict         Verdict?
+  confidence      Confidence?
+  heatScore       Float         @default(0)
+  recurrenceCount Int           @default(0)
+  parentRoomId    String?
+  duplicateOf     String?
+  tags            String[]
+  piiFlagged      Boolean       @default(false)
+  createdBy       String
+  createdAt       DateTime      @default(now())
+  closedAt        DateTime?
+  clarityCardUrl  String?
+  voiceBriefUrl   String?
+
+  creator         User          @relation("RoomCreator", fields: [createdBy], references: [id])
+  parentRoom      Room?         @relation("RoomParent", fields: [parentRoomId], references: [id])
+  mergedRooms     Room[]        @relation("RoomParent")
+  evidence        Evidence[]
+  votes           Vote[]
+  members         RoomMember[]
+  clarityCard     ClarityCard?
+  agentEvents     AgentEvent[]
+  auditLogs       AuditLog[]
+
+  @@index([status, heatScore(sort: Desc)])
+  @@index([claimNormalized])
+  @@index([createdAt])
+}
+
+model RoomMember {
+  id        String   @id @default(cuid())
+  roomId     String
+  userId     String
+  role       RoomRole
+  createdAt  DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId, role])
+}
+
+model Evidence {
+  id               String       @id @default(cuid())
+  roomId            String
+  submittedBy       String
+  sourceUrl         String
+  sourceName        String
+  sourceFaviconUrl  String?
+  snippet           String       @db.VarChar(300)
+  stance            Stance
+  type              EvidenceType
+  agentConfidence   Float?
+  disputedBy        String[]
+  createdAt         DateTime     @default(now())
+  removedAt         DateTime?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [submittedBy], references: [id], onDelete: SetNull)
+
+  @@index([roomId, createdAt])
+}
+
+model Vote {
+  id        String    @id @default(cuid())
+  roomId     String
+  userId     String
+  verdict    Verdict
+  weight     Float
+  createdAt  DateTime  @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId, verdict])
+}
+
+model ClarityCard {
+  id              String   @id @default(cuid())
+  roomId           String   @unique
+  claimShort       String   @db.VarChar(120)
+  verdict          String
+  confidence       String
+  evidenceBullets  String[]
+  rebuttalText     String
+  imageUrl         String
+  audioUrl         String?
+  qrUrl            String
+  createdAt        DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model RecurrenceRecord {
+  id               String   @id @default(cuid())
+  claimFingerprint String   @unique
+  roomIds          String[]
+  firstSeen        DateTime
+  lastSeen         DateTime
+  recurrenceCount  Int      @default(1)
+}
+
+model AgentEvent {
+  id        String   @id @default(cuid())
+  roomId     String
+  step       String
+  detail     String
+  progress   Int
+  blocked    Boolean @default(false)
+  createdAt  DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  roomId       String?
+  actorId      String?
+  actorType    String
+  action       String
+  payload      Json
+  createdAt    DateTime @default(now())
+
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([roomId, createdAt])
+  @@index([actorId, createdAt])
+}
