@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  NEXTAUTH_SECRET: z.string().min(16),
-  NEXTAUTH_URL: z.string().url(),
-  DATABASE_URL: z.string().min(1),
+  NEXTAUTH_SECRET: z.string().min(16).default("dev-nextauth-secret-change-me"),
+  NEXTAUTH_URL: z.string().url().default("http://localhost:3000"),
+  DATABASE_URL: z.string().min(1).default("postgresql://veriwire:veriwire@localhost:5432/veriwire"),
   REDIS_URL: z.string().optional(),
   GITHUB_ID: z.string().optional(),
   GITHUB_SECRET: z.string().optional(),
@@ -25,6 +25,15 @@ const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
   console.error("Invalid environment variables", parsed.error.flatten().fieldErrors);
   throw new Error("Environment validation failed");
+}
+
+if (process.env.NODE_ENV === "production") {
+  const required = ["NEXTAUTH_SECRET", "NEXTAUTH_URL", "DATABASE_URL"];
+  for (const key of required) {
+    if (!process.env[key]) {
+      throw new Error(`Missing required environment variable in production: ${key}`);
+    }
+  }
 }
 
 export const env = {
