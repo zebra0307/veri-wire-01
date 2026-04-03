@@ -1,4 +1,14 @@
-import { PrismaClient, RoomRole, RoomStatus, Verdict, Confidence, Stance, EvidenceType, GlobalRole } from "@prisma/client";
+import {
+  PrismaClient,
+  RoomRole,
+  RoomStatus,
+  Verdict,
+  Confidence,
+  Stance,
+  EvidenceType,
+  GlobalRole,
+  ChecklistStatus
+} from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -134,6 +144,23 @@ async function main() {
     ]
   });
 
+  await prisma.checklistTask.createMany({
+    data: [
+      { roomId: room1.id, title: "Agent run complete", status: ChecklistStatus.DONE, completedAt: new Date() },
+      { roomId: room1.id, title: "3 evidence items added", status: ChecklistStatus.DONE, completedAt: new Date() },
+      { roomId: room1.id, title: "Poll opened", status: ChecklistStatus.PENDING },
+      { roomId: room1.id, title: "Verdict reached", status: ChecklistStatus.PENDING },
+      { roomId: room2.id, title: "Agent run complete", status: ChecklistStatus.DONE, completedAt: new Date() },
+      { roomId: room2.id, title: "3 evidence items added", status: ChecklistStatus.DONE, completedAt: new Date() },
+      { roomId: room2.id, title: "Poll opened", status: ChecklistStatus.DONE, completedAt: new Date() },
+      { roomId: room2.id, title: "Verdict reached", status: ChecklistStatus.PENDING },
+      { roomId: room3.id, title: "Agent run complete", status: ChecklistStatus.DONE, completedAt: new Date() },
+      { roomId: room3.id, title: "3 evidence items added", status: ChecklistStatus.DONE, completedAt: new Date() },
+      { roomId: room3.id, title: "Poll opened", status: ChecklistStatus.DONE, completedAt: new Date() },
+      { roomId: room3.id, title: "Verdict reached", status: ChecklistStatus.DONE, completedAt: new Date() }
+    ]
+  });
+
   await prisma.clarityCard.create({
     data: {
       roomId: room3.id,
@@ -148,6 +175,12 @@ async function main() {
       imageUrl: "/mock/clarity-card-vwrm0003.png",
       audioUrl: "/mock/clarity-card-vwrm0003.mp3",
       qrUrl: "https://veriwire.demo/rooms/VWRM0003"
+    }
+  });
+
+  await prisma.publishedQueue.create({
+    data: {
+      roomId: room3.id
     }
   });
 

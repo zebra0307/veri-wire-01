@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --vv-bg: #0f0e0d;
+  --vv-surface-1: #161513;
+  --vv-surface-2: #1c1a18;
+  --vv-surface-3: #232120;
+  --vv-accent: #2dd4bf;
+  --vv-amber: #f59e0b;
+  --vv-emerald: #10b981;
+  --vv-crimson: #ef4444;
+  --vv-slate: #6b7280;
+  --vv-text: #e5e4e2;
+  --vv-muted: #6b6a68;
+  --vv-border: rgba(255, 255, 255, 0.07);
+  --vv-agent: #6366f1;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: radial-gradient(circle at 12% 0%, rgba(45, 212, 191, 0.08), transparent 30%),
+    radial-gradient(circle at 92% 12%, rgba(99, 102, 241, 0.08), transparent 28%),
+    linear-gradient(155deg, #0f0e0d 0%, #11100f 40%, #0f0e0d 100%);
+  color: var(--vv-text);
+}
+
+body {
+  font-feature-settings: "tnum";
+}
+
+* {
+  border-color: var(--vv-border);
+}
+
+.status-pill {
+  @apply rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em];
+}
+
+.card-shell {
+  @apply border border-white/10 bg-[#161513]/90;
+}
+
+.feed-item-active {
+  box-shadow: inset 2px 0 0 var(--vv-accent);
+}

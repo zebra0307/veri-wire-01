@@ -51,6 +51,11 @@ enum RoomRole {
   OBSERVER
 }
 
+enum ChecklistStatus {
+  PENDING
+  DONE
+}
+
 model User {
   id                 String       @id @default(cuid())
   name               String?
@@ -70,7 +75,6 @@ model User {
   sessions           Session[]
   roomsOwned         Room[]       @relation("RoomCreator")
   memberships        RoomMember[]
-  evidence           Evidence[]
   votes              Vote[]
   auditLogs          AuditLog[]
 }
@@ -139,10 +143,33 @@ model Room {
   clarityCard     ClarityCard?
   agentEvents     AgentEvent[]
   auditLogs       AuditLog[]
+  checklistTasks  ChecklistTask[]
+  publishedQueue  PublishedQueue?
 
   @@index([status, heatScore(sort: Desc)])
   @@index([claimNormalized])
   @@index([createdAt])
+}
+
+model ChecklistTask {
+  id         String          @id @default(cuid())
+  roomId      String
+  title       String
+  status      ChecklistStatus @default(PENDING)
+  createdAt   DateTime        @default(now())
+  completedAt DateTime?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, status])
+}
+
+model PublishedQueue {
+  id        String   @id @default(cuid())
+  roomId     String   @unique
+  createdAt  DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 }
 
 model RoomMember {
@@ -175,8 +202,6 @@ model Evidence {
   removedAt         DateTime?
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user User? @relation(fields: [submittedBy], references: [id], onDelete: SetNull)
-
   @@index([roomId, createdAt])
 }
 
