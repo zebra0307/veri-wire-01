@@ -68,7 +68,46 @@ export async function GET(_request: NextRequest, { params }: { params: { roomId:
       }))
     );
 
-    return NextResponse.json({ room, weighted });
+    const recurrenceRecord = await prisma.recurrenceRecord.findFirst({
+      where: {
+        roomIds: {
+          has: room.id
+        }
+      }
+    });
+
+    let recurrenceBanner: {
+      originalRoomId: string;
+      daysAgo: number;
+      resurfacedCount: number;
+      originalVerdict: string | null;
+    } | null = null;
+
+    if (recurrenceRecord && recurrenceRecord.recurrenceCount > 1) {
+      const originalRoomId = recurrenceRecord.roomIds[0];
+      const originalRoom = await prisma.room.findUnique({
+        where: {
+          id: originalRoomId
+        },
+        select: {
+          verdict: true,
+          closedAt: true,
+          createdAt: true
+        }
+      });
+
+      const baselineDate = originalRoom?.closedAt ?? originalRoom?.createdAt ?? recurrenceRecord.firstSeen;
+      const daysAgo = Math.max(0, Math.floor((Date.now() - baselineDate.getTime()) / (1000 * 60 * 60 * 24)));
+
+      recurrenceBanner = {
+        originalRoomId,
+        daysAgo,
+        resurfacedCount: recurrenceRecord.recurrenceCount,
+        originalVerdict: originalRoom?.verdict ?? null
+      };
+    }
+
+    return NextResponse.json({ room, weighted, recurrenceBanner });
   } catch (error) {
     return handleRouteError(error);
   }

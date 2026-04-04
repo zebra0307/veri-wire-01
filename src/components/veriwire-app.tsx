@@ -93,6 +93,13 @@ type Weighted = {
   };
 };
 
+type RecurrenceBanner = {
+  originalRoomId: string;
+  daysAgo: number;
+  resurfacedCount: number;
+  originalVerdict: "TRUE" | "FALSE" | "UNCLEAR" | null;
+} | null;
+
 const statusClassMap: Record<RoomSummary["status"], string> = {
   OPEN: "text-vv-slate border-vv-slate/70",
   INVESTIGATING: "text-vv-amber border-vv-amber/70",
@@ -157,6 +164,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   const [activeRoomId, setActiveRoomId] = useState<string | null>(initialRoomId);
   const [activeRoom, setActiveRoom] = useState<RoomDetail | null>(null);
   const [weighted, setWeighted] = useState<Weighted | null>(null);
+  const [recurrenceBanner, setRecurrenceBanner] = useState<RecurrenceBanner>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [claimText, setClaimText] = useState("");
@@ -175,9 +183,12 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   async function loadRoom(roomId: string) {
-    const data = await readJson<{ room: RoomDetail; weighted: Weighted }>(`/api/rooms/${roomId}`);
+    const data = await readJson<{ room: RoomDetail; weighted: Weighted; recurrenceBanner: RecurrenceBanner }>(
+      `/api/rooms/${roomId}`
+    );
     setActiveRoom(data.room);
     setWeighted(data.weighted);
+    setRecurrenceBanner(data.recurrenceBanner);
   }
 
   async function refreshAll() {
@@ -350,6 +361,24 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
     }
   }
 
+  async function disputeAgentEvidence(evidenceId: string) {
+    if (!activeRoomId) return;
+
+    try {
+      setBusy(true);
+      setError(null);
+      await readJson(`/api/rooms/${activeRoomId}/evidence/${evidenceId}/dispute`, {
+        method: "POST"
+      });
+
+      await loadRoom(activeRoomId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to dispute evidence");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="min-h-screen p-3 md:p-5">
       <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-white/10 bg-vv-surface1/90 px-4 py-3 animate-rise">
@@ -407,9 +436,20 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                 <p className="mt-2 text-xs text-vv-muted">Immutable claim record</p>
               </div>
 
-              {activeRoom.recurrenceCount > 1 ? (
+              {recurrenceBanner ? (
                 <div className="border-y border-vv-amber/45 bg-vv-amber/10 px-4 py-2 text-xs text-vv-amber">
-                  This claim resurfaced {activeRoom.recurrenceCount} times. Check related resolved rooms before amplifying.
+                  This claim was {recurrenceBanner.originalVerdict?.toLowerCase() ?? "reviewed"} {recurrenceBanner.daysAgo} days ago.
+                  It resurfaced {recurrenceBanner.resurfacedCount} times.
+                  <a
+                    className="ml-1 font-semibold underline"
+                    href={`/?room=${recurrenceBanner.originalRoomId}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setActiveRoomId(recurrenceBanner.originalRoomId);
+                    }}
+                  >
+                    Open original room
+                  </a>
                 </div>
               ) : null}
 
@@ -440,6 +480,15 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                         <a className="truncate text-vv-accent hover:underline" href={item.sourceUrl} target="_blank" rel="noreferrer">
                           {item.sourceName}
                         </a>
+                        {isAgent ? (
+                          <button
+                            onClick={() => disputeAgentEvidence(item.id)}
+                            disabled={busy}
+                            className="status-pill border-vv-amber/50 text-vv-amber hover:bg-vv-amber/10 disabled:opacity-40"
+                          >
+                            Dispute ({item.disputedBy.length})
+                          </button>
+                        ) : null}
                       </div>
                       <p className={cn("text-sm leading-relaxed text-vv-text", disputed && "line-through")}>{item.snippet}</p>
                     </article>
