@@ -1,4 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { Confidence, EvidenceType, RoomStatus, Stance } from "@prisma/client";
 import { z } from "zod";
 import { appendAuditLog } from "@/lib/audit";
@@ -56,6 +58,12 @@ const assessmentSchema = z.object({
   verdict: z.enum(["TRUE", "FALSE", "UNCLEAR"]),
   confidence: z.nativeEnum(Confidence),
   summary: z.string().min(20).max(2000)
+});
+
+const clarityCardSchema = z.object({
+  claimShort: z.string().min(8).max(120),
+  rebuttalText: z.string().min(20).max(320),
+  voiceBrief: z.string().min(20).max(420).optional()
 });
 
 function sourceNameFromUrl(url: string) {
@@ -118,6 +126,22 @@ async function callGeminiJson<T>(prompt: string, schema: z.ZodType<T>): Promise<
     return result.success ? result.data : null;
   } catch {
     return null;
+  }
+}
+
+async function resolveWithTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -336,6 +360,52 @@ Output JSON: {"verdict":"TRUE|FALSE|UNCLEAR","confidence":"LOW|MEDIUM|HIGH","sum
     confidence: generated.confidence,
     summary: sanitizeSnippet(generated.summary, 1800)
   } satisfies AgentAssessment;
+}
+
+async function synthesizeVoiceBrief(roomId: string, text: string) {
+  if (!env.ELEVENLABS_API_KEY) {
+    return null;
+  }
+
+  const voiceId = process.env.ELEVENLABS_VOICE_ID ?? "EXAVITQu4vr4xnSDxMaL";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: "POST",
+      headers: {
+        "xi-api-key": env.ELEVENLABS_API_KEY,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg"
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_turbo_v2_5",
+        voice_settings: {
+          stability: 0.45,
+          similarity_boost: 0.75
+        }
+      }),
+      signal: controller.signal,
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const audioBuffer = Buffer.from(await response.arrayBuffer());
+    const cardsDir = path.join(process.cwd(), "public", "cards");
+    await mkdir(cardsDir, { recursive: true });
+    await writeFile(path.join(cardsDir, `${roomId}.mp3`), audioBuffer);
+
+    return `/cards/${roomId}.mp3`;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function runAgentPipeline(roomId: string, actorId?: string) {
@@ -608,18 +678,26 @@ export async function generateClarityCardForRoom(roomId: string) {
     .slice(0, 3);
 
   const fallbackClaimShort = room.claimNormalized.slice(0, 120);
-  const prompt = `Claim to verify: ${room.claimNormalized}\nSearch results provided: ${JSON.stringify(topBullets)}\nTask: Write a concise max-120-char claim short and a 2-sentence share-safe rebuttal.`;
-  const gemini = await callGemini(prompt);
+  const prompt = `Claim to verify: ${room.claimNormalized}
+Evidence bullets: ${JSON.stringify(topBullets)}
+Task:
+1) Write claimShort (max 120 chars) suitable for sharing.
+2) Write rebuttalText (2 sentences, calm neutral tone, max 280 chars).
+3) Write voiceBrief (30-45 second spoken script, max 420 chars).
+Output JSON: {"claimShort":"...","rebuttalText":"...","voiceBrief":"..."}`;
 
-  const claimShort = sanitizeClaimText(gemini?.split("\n")[0] ?? fallbackClaimShort).slice(0, 120);
+  const generated = await resolveWithTimeout(callGeminiJson(prompt, clarityCardSchema), 20000, null);
+
+  const claimShort = sanitizeClaimText(generated?.claimShort ?? fallbackClaimShort).slice(0, 120);
   const rebuttalText = sanitizeSnippet(
-    gemini?.split("\n").slice(1).join(" ") ||
-      `Verdict: ${room.verdict}. The available evidence does not support the viral claim as stated.`,
+    generated?.rebuttalText || `Verdict: ${room.verdict}. The available evidence does not support the viral claim as stated.`,
     280
   );
 
+  const voiceBriefScript = sanitizeSnippet(generated?.voiceBrief ?? rebuttalText, 420);
+  const audioPath = await resolveWithTimeout(synthesizeVoiceBrief(room.id, voiceBriefScript), 9000, null);
+
   const cardPath = `/cards/${room.id}.png`;
-  const audioPath = env.ELEVENLABS_API_KEY ? `/cards/${room.id}.mp3` : null;
   const qrUrl = `${env.APP_URL}/?room=${room.id}`;
 
   await prisma.clarityCard.upsert({

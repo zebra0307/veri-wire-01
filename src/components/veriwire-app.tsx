@@ -611,9 +611,17 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
     try {
       setBusy(true);
       setError(null);
-      await readJson(`/api/rooms/${activeRoomId}/clarity-card`, {
-        method: "POST"
-      });
+      const result = await readJson<{ ok: boolean; pending?: boolean; message?: string }>(
+        `/api/rooms/${activeRoomId}/clarity-card`,
+        {
+          method: "POST"
+        }
+      );
+
+      if (result.pending) {
+        setInlineMessage(result.message ?? "Clarity card generation is running in background.");
+      }
+
       await loadRoom(activeRoomId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate clarity card");
@@ -635,7 +643,6 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
       await readJson(`/api/rooms/${activeRoomId}/evidence/${evidenceId}/dispute`, {
         method: "POST"
       });
-
       await loadRoom(activeRoomId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to dispute evidence");
