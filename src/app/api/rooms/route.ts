@@ -4,6 +4,7 @@ import { normalizeClaim } from "@/lib/agent";
 import { getSessionUser } from "@/lib/auth";
 import { appendAuditLog } from "@/lib/audit";
 import { handleRouteError, jsonError } from "@/lib/http";
+import { maybeRecalculateHeatScores } from "@/lib/heat";
 import { prisma } from "@/lib/prisma";
 import { detectDuplicateOrRelatedClaim } from "@/lib/recurrence";
 import { classifyToxicity, detectPii } from "@/lib/security/moderation";
@@ -18,6 +19,8 @@ const allowedImageMime = new Set(["image/jpeg", "image/png", "image/webp"]);
 export async function GET(request: NextRequest) {
   try {
     await getSessionUser();
+
+    await maybeRecalculateHeatScores();
 
     const search = request.nextUrl.searchParams;
     const status = search.get("status") as RoomStatus | null;

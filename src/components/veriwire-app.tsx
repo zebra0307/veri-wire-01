@@ -168,6 +168,8 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [claimText, setClaimText] = useState("");
+  const [claimUrl, setClaimUrl] = useState("");
+  const [claimImage, setClaimImage] = useState<File | null>(null);
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [evidenceStance, setEvidenceStance] = useState<"SUPPORTS" | "REFUTES" | "CONTEXT">("REFUTES");
   const [voteVerdict, setVoteVerdict] = useState<"TRUE" | "FALSE" | "UNCLEAR">("FALSE");
@@ -259,20 +261,53 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }, [activeRoom]);
 
   async function submitClaim() {
-    if (!claimText.trim()) return;
+    if (!claimText.trim() && !claimUrl.trim() && !claimImage) return;
 
     try {
       setBusy(true);
       setError(null);
+
+      let sourceType: "TEXT" | "URL" | "IMAGE" = "TEXT";
+      let uploadedImageUrl: string | undefined;
+      let imageMime: string | undefined;
+      let imageSize: number | undefined;
+
+      if (claimImage) {
+        sourceType = "IMAGE";
+        const payload = new FormData();
+        payload.append("file", claimImage);
+
+        const uploadRes = await fetch("/api/uploads/image", {
+          method: "POST",
+          body: payload
+        });
+
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) {
+          throw new Error(uploadData?.detail ?? uploadData?.error ?? "Failed to upload image");
+        }
+
+        uploadedImageUrl = uploadData.url as string;
+        imageMime = uploadData.mime as string;
+        imageSize = uploadData.size as number;
+      } else if (claimUrl.trim()) {
+        sourceType = "URL";
+      }
+
       const data = await readJson<{ room: RoomSummary }>("/api/rooms", {
         method: "POST",
         body: JSON.stringify({
-          claimText: claimText.trim(),
-          sourceType: "TEXT"
+          claimText: claimText.trim() || claimUrl.trim() || "Image claim submitted",
+          sourceType,
+          claimUrl: sourceType === "IMAGE" ? uploadedImageUrl : claimUrl.trim() || undefined,
+          imageMime,
+          imageSize
         })
       });
 
       setClaimText("");
+      setClaimUrl("");
+      setClaimImage(null);
       setActiveRoomId(data.room.id);
       await refreshAll();
     } catch (err) {
@@ -684,17 +719,33 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
       </div>
 
       <div className="mx-auto mt-3 flex max-w-[1460px] gap-2">
-        <input
-          value={claimText}
-          onChange={(event) => setClaimText(event.target.value)}
-          maxLength={1000}
-          className="w-full border border-white/10 bg-vv-surface2 px-3 py-2 text-sm outline-none focus:border-vv-accent"
-          placeholder="Submit viral claim text"
-          disabled={busy}
-        />
+        <div className="grid w-full gap-2 md:grid-cols-3">
+          <input
+            value={claimText}
+            onChange={(event) => setClaimText(event.target.value)}
+            maxLength={1000}
+            className="w-full border border-white/10 bg-vv-surface2 px-3 py-2 text-sm outline-none focus:border-vv-accent"
+            placeholder="Submit viral claim text"
+            disabled={busy}
+          />
+          <input
+            value={claimUrl}
+            onChange={(event) => setClaimUrl(event.target.value)}
+            className="w-full border border-white/10 bg-vv-surface2 px-3 py-2 text-sm outline-none focus:border-vv-accent"
+            placeholder="or source URL"
+            disabled={busy}
+          />
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(event) => setClaimImage(event.target.files?.[0] ?? null)}
+            className="w-full border border-white/10 bg-vv-surface2 px-3 py-2 text-xs text-vv-muted outline-none file:mr-2 file:border-0 file:bg-vv-accent/20 file:px-2 file:py-1 file:text-vv-accent"
+            disabled={busy}
+          />
+        </div>
         <button
           onClick={submitClaim}
-          disabled={busy || !claimText.trim()}
+          disabled={busy || (!claimText.trim() && !claimUrl.trim() && !claimImage)}
           className="border border-vv-accent/70 bg-vv-accent/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-vv-accent disabled:opacity-40"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Room"}

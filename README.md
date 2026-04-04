@@ -91,6 +91,20 @@ curl -s https://$DOMAIN/api/health
 - Stream emits `room.update` payload markers whenever room/evidence/vote/agent/audit state changes.
 - If `SPACETIMEDB_ENDPOINT` is configured, audit events are also mirrored to your managed SpacetimeDB event ingest path.
 
+## Heat score recalculation
+
+- Feed reads trigger opportunistic 5-minute heat-score recalculation.
+- You can also trigger recalculation manually:
+
+```bash
+curl -X POST https://$DOMAIN/api/system/heat/recalculate -H "x-internal-secret: $INTERNAL_AGENT_SECRET"
+```
+
+## Image claim uploads
+
+- Secure upload endpoint: `/api/uploads/image` (authenticated).
+- Server validates MIME (`jpeg/png/webp`) and size (`<=5MB`) and blocks SVG.
+
 ## SuperPlane integration
 
 - Room creation and room close transitions dispatch `claim.created` and `room.closed` workflow events.
