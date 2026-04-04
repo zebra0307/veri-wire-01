@@ -1,27 +1,38 @@
 import { z } from "zod";
 
+const emptyToUndefined = (value: unknown) => {
+  if (typeof value === "string" && value.trim() === "") {
+    return undefined;
+  }
+
+  return value;
+};
+
+const optionalString = z.preprocess(emptyToUndefined, z.string().optional());
+const optionalUrl = z.preprocess(emptyToUndefined, z.string().url().optional());
+
 const envSchema = z.object({
   NEXTAUTH_SECRET: z.string().min(16).default("dev-nextauth-secret-change-me"),
   NEXTAUTH_URL: z.string().url().default("http://localhost:3000"),
   DATABASE_URL: z.string().min(1).default("postgresql://veriwire:veriwire@localhost:5432/veriwire"),
-  REDIS_URL: z.string().optional(),
-  GITHUB_ID: z.string().optional(),
-  GITHUB_SECRET: z.string().optional(),
-  EMAIL_SERVER_HOST: z.string().optional(),
-  EMAIL_SERVER_PORT: z.string().optional(),
-  EMAIL_SERVER_USER: z.string().optional(),
-  EMAIL_SERVER_PASSWORD: z.string().optional(),
-  EMAIL_FROM: z.string().optional(),
-  GEMINI_API_KEY: z.string().optional(),
-  BRAVE_SEARCH_API_KEY: z.string().optional(),
-  ELEVENLABS_API_KEY: z.string().optional(),
-  SPACETIMEDB_ENDPOINT: z.string().url().optional(),
-  SPACETIMEDB_API_KEY: z.string().optional(),
-  SUPERPLANE_WEBHOOK_URL: z.string().url().optional(),
-  SUPERPLANE_SECRET: z.string().optional(),
+  REDIS_URL: optionalString,
+  GITHUB_ID: optionalString,
+  GITHUB_SECRET: optionalString,
+  EMAIL_SERVER_HOST: optionalString,
+  EMAIL_SERVER_PORT: optionalString,
+  EMAIL_SERVER_USER: optionalString,
+  EMAIL_SERVER_PASSWORD: optionalString,
+  EMAIL_FROM: optionalString,
+  GEMINI_API_KEY: optionalString,
+  BRAVE_SEARCH_API_KEY: optionalString,
+  ELEVENLABS_API_KEY: optionalString,
+  SPACETIMEDB_ENDPOINT: optionalUrl,
+  SPACETIMEDB_API_KEY: optionalString,
+  SUPERPLANE_WEBHOOK_URL: optionalUrl,
+  SUPERPLANE_SECRET: optionalString,
   DEMO_BYPASS_AUTH: z.enum(["true", "false"]).default("false"),
   APP_URL: z.string().url().default("http://localhost:3000"),
-  INTERNAL_AGENT_SECRET: z.string().optional()
+  INTERNAL_AGENT_SECRET: optionalString
 });
 
 const parsed = envSchema.safeParse(process.env);
