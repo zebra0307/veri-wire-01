@@ -11,7 +11,7 @@ import { RateLimitError, enforceRateLimit } from "@/lib/security/rate-limit";
 import { sanitizeClaimText } from "@/lib/security/sanitize";
 import { createRoomId } from "@/lib/utils";
 import { claimSubmissionSchema } from "@/lib/validation";
-import { onClaimCreated } from "@/lib/workflows";
+import { dispatchWorkflowEvent } from "@/lib/superplane";
 
 const allowedImageMime = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -179,7 +179,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (!pii.containsPii) {
-      await onClaimCreated(room.id, user.id);
+      await dispatchWorkflowEvent({
+        event: "claim.created",
+        roomId: room.id,
+        actorId: user.id
+      });
     } else {
       await appendAuditLog({
         roomId: room.id,

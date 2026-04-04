@@ -6,8 +6,8 @@ import { appendAuditLog } from "@/lib/audit";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { requireRoomRole } from "@/lib/security/authz";
+import { dispatchWorkflowEvent } from "@/lib/superplane";
 import { statusSchema } from "@/lib/validation";
-import { onRoomClosed } from "@/lib/workflows";
 
 const allowedTransitions: Record<RoomStatus, RoomStatus[]> = {
   OPEN: [RoomStatus.INVESTIGATING],
@@ -87,7 +87,11 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
         }
       });
 
-      await onRoomClosed(params.roomId, user.id);
+      await dispatchWorkflowEvent({
+        event: "room.closed",
+        roomId: params.roomId,
+        actorId: user.id
+      });
 
       return NextResponse.json({
         status: RoomStatus.CLOSED,

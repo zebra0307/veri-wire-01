@@ -196,7 +196,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
     refreshAll();
     const timer = setInterval(() => {
       refreshAll();
-    }, 8000);
+    }, 20000);
 
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,6 +205,38 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   useEffect(() => {
     if (!activeRoomId) return;
     loadRoom(activeRoomId).catch((err) => setError(err instanceof Error ? err.message : "Failed to load room"));
+  }, [activeRoomId]);
+
+  useEffect(() => {
+    if (!activeRoomId) {
+      return;
+    }
+
+    const stream = new EventSource(`/api/rooms/${activeRoomId}/stream`);
+
+    const refreshRoom = () => {
+      loadRoom(activeRoomId).catch(() => {
+        // Stream refresh failures should not tear down UI state.
+      });
+      loadRooms().catch(() => {
+        // Feed refresh failures are ignored until next server event.
+      });
+    };
+
+    stream.addEventListener("room.update", refreshRoom);
+
+    stream.addEventListener("stream.error", () => {
+      setError("Live stream interrupted. Reconnecting...");
+    });
+
+    stream.onerror = () => {
+      setError("Realtime connection dropped. Falling back to periodic refresh.");
+    };
+
+    return () => {
+      stream.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRoomId]);
 
   const latestAgentEvent = useMemo(() => {

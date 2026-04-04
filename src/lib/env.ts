@@ -15,6 +15,10 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   BRAVE_SEARCH_API_KEY: z.string().optional(),
   ELEVENLABS_API_KEY: z.string().optional(),
+  SPACETIMEDB_ENDPOINT: z.string().url().optional(),
+  SPACETIMEDB_API_KEY: z.string().optional(),
+  SUPERPLANE_WEBHOOK_URL: z.string().url().optional(),
+  SUPERPLANE_SECRET: z.string().optional(),
   DEMO_BYPASS_AUTH: z.enum(["true", "false"]).default("false"),
   APP_URL: z.string().url().default("http://localhost:3000"),
   INTERNAL_AGENT_SECRET: z.string().optional()

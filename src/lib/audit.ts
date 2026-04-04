@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { publishSpacetimeEvent } from "@/lib/spacetime";
 
 export async function appendAuditLog(input: {
   roomId?: string;
@@ -8,7 +9,7 @@ export async function appendAuditLog(input: {
   action: string;
   payload: Prisma.InputJsonValue;
 }) {
-  await prisma.auditLog.create({
+  const created = await prisma.auditLog.create({
     data: {
       roomId: input.roomId,
       actorId: input.actorId,
@@ -16,5 +17,16 @@ export async function appendAuditLog(input: {
       action: input.action,
       payload: input.payload
     }
+  });
+
+  await publishSpacetimeEvent({
+    roomId: input.roomId,
+    event: "audit.appended",
+    data: {
+      id: created.id,
+      action: created.action,
+      actorType: created.actorType
+    },
+    createdAt: created.createdAt.toISOString()
   });
 }

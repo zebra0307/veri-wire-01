@@ -7,7 +7,8 @@ export async function GET() {
       app: "up",
       database: process.env.DATABASE_URL ? "configured" : "missing",
       redis: process.env.REDIS_URL ? "configured" : "missing",
-      spacetime: "managed-cloud"
+      spacetime: process.env.SPACETIMEDB_ENDPOINT ? "configured" : "not-configured",
+      superplane: process.env.SUPERPLANE_WEBHOOK_URL ? "configured" : "local-fallback"
     },
     timestamp: new Date().toISOString()
   });

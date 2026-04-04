@@ -84,3 +84,16 @@ curl -s https://$DOMAIN/api/health
 - Agent route `/api/rooms/[roomId]/agent/run` is internal-secret gated.
 - Clarity card files are represented as app paths for demo mode.
 - Observer demo flow can be enabled with `DEMO_BYPASS_AUTH=true`.
+
+## Live updates
+
+- Client subscribes to SSE stream at `/api/rooms/:roomId/stream`.
+- Stream emits `room.update` payload markers whenever room/evidence/vote/agent/audit state changes.
+- If `SPACETIMEDB_ENDPOINT` is configured, audit events are also mirrored to your managed SpacetimeDB event ingest path.
+
+## SuperPlane integration
+
+- Room creation and room close transitions dispatch `claim.created` and `room.closed` workflow events.
+- If `SUPERPLANE_WEBHOOK_URL` is set, events are sent remotely.
+- If remote dispatch fails (or URL not set), local fallback executes the same workflow handlers.
+- Optional secure inbound endpoint for orchestration callbacks: `/api/superplane/events` with `x-superplane-secret`.
