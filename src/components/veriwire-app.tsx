@@ -100,6 +100,12 @@ type RecurrenceBanner = {
   originalVerdict: "TRUE" | "FALSE" | "UNCLEAR" | null;
 } | null;
 
+type RoomsResponse = {
+  rooms: RoomSummary[];
+  demoMode: boolean;
+  viewerRole: "OBSERVER" | "CONTRIBUTOR";
+};
+
 const statusClassMap: Record<RoomSummary["status"], string> = {
   OPEN: "text-vv-slate border-vv-slate/70",
   INVESTIGATING: "text-vv-amber border-vv-amber/70",
@@ -159,12 +165,49 @@ async function readJson<T>(url: string, init?: RequestInit) {
   return data as T;
 }
 
+function DemoLayoutSkeleton() {
+  return (
+    <div className="mx-auto grid max-w-[1460px] grid-cols-1 gap-3 md:grid-cols-[240px_1fr_300px] animate-rise">
+      <aside className="card-shell hidden overflow-hidden md:block">
+        <div className="h-10 border-b border-white/10 bg-white/[0.02]" />
+        <div className="space-y-2 p-3">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={`feed-skeleton-${index}`} className="h-14 animate-pulse bg-white/[0.04]" />
+          ))}
+        </div>
+      </aside>
+
+      <section className="card-shell min-h-[72vh] p-3">
+        <div className="h-24 animate-pulse bg-white/[0.05]" />
+        <div className="mt-3 h-10 animate-pulse bg-white/[0.04]" />
+        <div className="mt-3 space-y-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={`thread-skeleton-${index}`} className="h-20 animate-pulse bg-white/[0.04]" />
+          ))}
+        </div>
+        <div className="mt-3 h-16 animate-pulse bg-white/[0.04]" />
+      </section>
+
+      <aside className="card-shell hidden p-3 md:block">
+        <div className="h-24 animate-pulse bg-white/[0.05]" />
+        <div className="mt-3 h-36 animate-pulse bg-white/[0.04]" />
+        <div className="mt-3 h-52 animate-pulse bg-white/[0.04]" />
+      </aside>
+    </div>
+  );
+}
+
 export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null }) {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(initialRoomId);
   const [activeRoom, setActiveRoom] = useState<RoomDetail | null>(null);
   const [weighted, setWeighted] = useState<Weighted | null>(null);
   const [recurrenceBanner, setRecurrenceBanner] = useState<RecurrenceBanner>(null);
+  const [demoMode, setDemoMode] = useState(true);
+  const [viewerRole, setViewerRole] = useState<"OBSERVER" | "CONTRIBUTOR">("OBSERVER");
+  const [showDemoBanner, setShowDemoBanner] = useState(true);
+  const [inlineMessage, setInlineMessage] = useState<string | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [claimText, setClaimText] = useState("");
@@ -175,13 +218,38 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   const [voteVerdict, setVoteVerdict] = useState<"TRUE" | "FALSE" | "UNCLEAR">("FALSE");
   const [mobileTab, setMobileTab] = useState<"FEED" | "ROOM" | "AGENT" | "CARD">("ROOM");
 
-  async function loadRooms() {
-    const data = await readJson<{ rooms: RoomSummary[] }>("/api/rooms");
-    setRooms(data.rooms);
+  const observerReadOnly = demoMode && viewerRole === "OBSERVER";
 
-    if (!activeRoomId && data.rooms.length > 0) {
-      setActiveRoomId(data.rooms[0].id);
+  const blockObserverAction = () => {
+    if (!observerReadOnly) {
+      return false;
     }
+
+    setInlineMessage("Sign in to contribute. Demo observers are read-only.");
+    return true;
+  };
+
+  const resolveDefaultRoomId = (items: RoomSummary[]) => {
+    if (initialRoomId) {
+      return initialRoomId;
+    }
+
+    const preferred =
+      items.find((room) => room.id === "room-002") ??
+      items.find((room) => room.id === "VWRM0002") ??
+      items.find((room) => room.status === "PENDING_VERDICT" && room.recurrenceCount > 0) ??
+      items[0] ??
+      null;
+
+    return preferred?.id ?? null;
+  };
+
+  async function loadRooms() {
+    const data = await readJson<RoomsResponse>("/api/rooms");
+    setRooms(data.rooms);
+    setDemoMode(data.demoMode);
+    setViewerRole(data.viewerRole);
+    return data;
   }
 
   async function loadRoom(roomId: string) {
@@ -196,9 +264,15 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   async function refreshAll() {
     try {
       setError(null);
-      await loadRooms();
+      const data = await loadRooms();
       if (activeRoomId) {
         await loadRoom(activeRoomId);
+      } else if (data.rooms.length > 0) {
+        const fallbackRoomId = resolveDefaultRoomId(data.rooms);
+        if (fallbackRoomId) {
+          setActiveRoomId(fallbackRoomId);
+          await loadRoom(fallbackRoomId);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
@@ -206,19 +280,67 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   useEffect(() => {
-    refreshAll();
-    const timer = setInterval(() => {
-      refreshAll();
-    }, 20000);
+    let mounted = true;
 
-    return () => clearInterval(timer);
+    const bootstrap = async () => {
+      try {
+        setError(null);
+        const initial = await loadRooms();
+
+        let roomsToUse = initial.rooms;
+        if (roomsToUse.length < 3) {
+          try {
+            await fetch("/api/seed", { method: "POST" });
+            const seeded = await loadRooms();
+            roomsToUse = seeded.rooms;
+          } catch {
+            // Seed guard is best-effort in packet 1 and becomes deterministic in packet 5.
+          }
+        }
+
+        const roomId = resolveDefaultRoomId(roomsToUse);
+        if (roomId) {
+          setActiveRoomId(roomId);
+          await loadRoom(roomId);
+        }
+      } catch (err) {
+        if (mounted) {
+          setError(err instanceof Error ? err.message : "Failed to initialize demo mode");
+        }
+      } finally {
+        if (mounted) {
+          setBootstrapping(false);
+        }
+      }
+    };
+
+    bootstrap();
+
+    return () => {
+      mounted = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!activeRoomId) return;
+    if (bootstrapping) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      refreshAll();
+    }, 20000);
+
+    return () => {
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bootstrapping, activeRoomId]);
+
+  useEffect(() => {
+    if (!activeRoomId || bootstrapping) return;
     loadRoom(activeRoomId).catch((err) => setError(err instanceof Error ? err.message : "Failed to load room"));
-  }, [activeRoomId]);
+  }, [activeRoomId, bootstrapping]);
 
   useEffect(() => {
     if (!activeRoomId) {
@@ -261,6 +383,10 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }, [activeRoom]);
 
   async function submitClaim() {
+    if (blockObserverAction()) {
+      return;
+    }
+
     if (!claimText.trim() && !claimUrl.trim() && !claimImage) return;
 
     try {
@@ -318,6 +444,10 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   async function submitEvidence() {
+    if (blockObserverAction()) {
+      return;
+    }
+
     if (!activeRoomId || !evidenceUrl.trim()) return;
 
     try {
@@ -340,6 +470,10 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   async function castVote() {
+    if (blockObserverAction()) {
+      return;
+    }
+
     if (!activeRoomId) return;
 
     try {
@@ -361,6 +495,10 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   async function setStatus(nextStatus: "INVESTIGATING" | "PENDING_VERDICT" | "CLOSED") {
+    if (blockObserverAction()) {
+      return;
+    }
+
     if (!activeRoomId) return;
 
     try {
@@ -380,6 +518,10 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   async function generateCard() {
+    if (blockObserverAction()) {
+      return;
+    }
+
     if (!activeRoomId) return;
 
     try {
@@ -397,6 +539,10 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   async function disputeAgentEvidence(evidenceId: string) {
+    if (blockObserverAction()) {
+      return;
+    }
+
     if (!activeRoomId) return;
 
     try {
@@ -414,6 +560,48 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
     }
   }
 
+  const observerNotice = inlineMessage ?? (observerReadOnly ? "Sign in to contribute. Demo observers are read-only." : null);
+
+  if (bootstrapping) {
+    return (
+      <main className="min-h-screen p-3 md:p-5">
+        <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-white/10 bg-vv-surface1/90 px-4 py-3 animate-rise">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.28em] text-vv-accent">VeriWire</p>
+            <p className="text-sm text-vv-muted">Collaborative misinformation resolution rooms</p>
+          </div>
+          <div className="hidden text-right font-mono text-xs text-vv-muted md:block">
+            {demoMode ? (
+              <>
+                <p>DEMO MODE ENABLED</p>
+                <p>{observerReadOnly ? "Observer session auto-resolved" : "Contributor session active"}</p>
+              </>
+            ) : (
+              <>
+                <p>LIVE MODE</p>
+                <p>Authenticated workflow active</p>
+              </>
+            )}
+          </div>
+        </div>
+
+        {demoMode && observerReadOnly && showDemoBanner ? (
+          <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-vv-amber/50 bg-vv-amber/10 px-4 py-2 text-sm text-vv-amber">
+            <p>Demo observer mode is read-only. Sign in to submit evidence, vote, or close rooms.</p>
+            <button
+              onClick={() => setShowDemoBanner(false)}
+              className="border border-vv-amber/60 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] hover:bg-vv-amber/15"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
+        <DemoLayoutSkeleton />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen p-3 md:p-5">
       <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-white/10 bg-vv-surface1/90 px-4 py-3 animate-rise">
@@ -422,10 +610,31 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
           <p className="text-sm text-vv-muted">Collaborative misinformation resolution rooms</p>
         </div>
         <div className="hidden text-right font-mono text-xs text-vv-muted md:block">
-          <p>DEMO MODE ENABLED</p>
-          <p>Observer session auto-resolved</p>
+          {demoMode ? (
+            <>
+              <p>DEMO MODE ENABLED</p>
+              <p>{observerReadOnly ? "Observer session auto-resolved" : "Contributor session active"}</p>
+            </>
+          ) : (
+            <>
+              <p>LIVE MODE</p>
+              <p>Authenticated workflow active</p>
+            </>
+          )}
         </div>
       </div>
+
+      {demoMode && observerReadOnly && showDemoBanner ? (
+        <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-vv-amber/50 bg-vv-amber/10 px-4 py-2 text-sm text-vv-amber">
+          <p>Demo observer mode is read-only. Sign in to submit evidence, vote, or close rooms.</p>
+          <button
+            onClick={() => setShowDemoBanner(false)}
+            className="border border-vv-amber/60 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] hover:bg-vv-amber/15"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
 
       <div className="mx-auto grid max-w-[1460px] grid-cols-1 gap-3 md:grid-cols-[240px_1fr_300px] animate-rise">
         <aside className={cn("card-shell hidden overflow-hidden md:block")}> 
@@ -518,7 +727,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                         {isAgent ? (
                           <button
                             onClick={() => disputeAgentEvidence(item.id)}
-                            disabled={busy}
+                            disabled={busy || observerReadOnly}
                             className="status-pill border-vv-amber/50 text-vv-amber hover:bg-vv-amber/10 disabled:opacity-40"
                           >
                             Dispute ({item.disputedBy.length})
@@ -539,13 +748,13 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                     onChange={(event) => setEvidenceUrl(event.target.value)}
                     className="w-full border border-white/10 bg-vv-surface2 px-3 py-2 text-sm outline-none focus:border-vv-accent"
                     placeholder="https://source.url"
-                    disabled={activeRoom.status === "CLOSED" || busy}
+                    disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
                   />
                   <select
                     value={evidenceStance}
                     onChange={(event) => setEvidenceStance(event.target.value as "SUPPORTS" | "REFUTES" | "CONTEXT")}
                     className="border border-white/10 bg-vv-surface2 px-3 py-2 text-sm outline-none focus:border-vv-accent"
-                    disabled={activeRoom.status === "CLOSED" || busy}
+                    disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
                   >
                     <option value="SUPPORTS">SUPPORTS</option>
                     <option value="REFUTES">REFUTES</option>
@@ -553,7 +762,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                   </select>
                   <button
                     onClick={submitEvidence}
-                    disabled={activeRoom.status === "CLOSED" || busy}
+                    disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
                     className="border border-vv-accent/70 bg-vv-accent/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-vv-accent transition hover:bg-vv-accent/20 disabled:opacity-40"
                   >
                     Add Source
@@ -622,7 +831,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                   value={voteVerdict}
                   onChange={(event) => setVoteVerdict(event.target.value as "TRUE" | "FALSE" | "UNCLEAR")}
                   className="border border-white/10 bg-vv-surface3 px-2 py-2 text-xs outline-none focus:border-vv-accent"
-                  disabled={activeRoom?.status !== "PENDING_VERDICT" || busy}
+                  disabled={activeRoom?.status !== "PENDING_VERDICT" || busy || observerReadOnly}
                 >
                   <option value="TRUE">TRUE</option>
                   <option value="FALSE">FALSE</option>
@@ -630,7 +839,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                 </select>
                 <button
                   onClick={castVote}
-                  disabled={activeRoom?.status !== "PENDING_VERDICT" || busy}
+                  disabled={activeRoom?.status !== "PENDING_VERDICT" || busy || observerReadOnly}
                   className="border border-vv-accent/70 bg-vv-accent/10 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-vv-accent disabled:opacity-40"
                 >
                   Vote
@@ -641,7 +850,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
             <section className="border border-white/10 bg-vv-surface2 p-3">
               <button
                 onClick={generateCard}
-                disabled={!activeRoom || activeRoom.status !== "CLOSED" || busy}
+                disabled={!activeRoom || activeRoom.status !== "CLOSED" || busy || observerReadOnly}
                 className="w-full border border-vv-accent/80 bg-vv-accent/20 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-vv-accent shadow-[0_0_18px_rgba(45,212,191,0.25)] disabled:opacity-40"
               >
                 Generate Clarity Card
@@ -718,6 +927,8 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         ) : null}
       </div>
 
+      {observerNotice ? <p className="mx-auto mt-3 max-w-[1460px] text-sm text-vv-amber">{observerNotice}</p> : null}
+
       <div className="mx-auto mt-3 flex max-w-[1460px] gap-2">
         <div className="grid w-full gap-2 md:grid-cols-3">
           <input
@@ -726,26 +937,26 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
             maxLength={1000}
             className="w-full border border-white/10 bg-vv-surface2 px-3 py-2 text-sm outline-none focus:border-vv-accent"
             placeholder="Submit viral claim text"
-            disabled={busy}
+            disabled={busy || observerReadOnly}
           />
           <input
             value={claimUrl}
             onChange={(event) => setClaimUrl(event.target.value)}
             className="w-full border border-white/10 bg-vv-surface2 px-3 py-2 text-sm outline-none focus:border-vv-accent"
             placeholder="or source URL"
-            disabled={busy}
+            disabled={busy || observerReadOnly}
           />
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp"
             onChange={(event) => setClaimImage(event.target.files?.[0] ?? null)}
             className="w-full border border-white/10 bg-vv-surface2 px-3 py-2 text-xs text-vv-muted outline-none file:mr-2 file:border-0 file:bg-vv-accent/20 file:px-2 file:py-1 file:text-vv-accent"
-            disabled={busy}
+            disabled={busy || observerReadOnly}
           />
         </div>
         <button
           onClick={submitClaim}
-          disabled={busy || (!claimText.trim() && !claimUrl.trim() && !claimImage)}
+          disabled={busy || observerReadOnly || (!claimText.trim() && !claimUrl.trim() && !claimImage)}
           className="border border-vv-accent/70 bg-vv-accent/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-vv-accent disabled:opacity-40"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Room"}
@@ -756,21 +967,21 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         <div className="mx-auto mt-3 flex max-w-[1460px] flex-wrap gap-2">
           <button
             onClick={() => setStatus("INVESTIGATING")}
-            disabled={busy || activeRoom.status !== "OPEN"}
+            disabled={busy || observerReadOnly || activeRoom.status !== "OPEN"}
             className="border border-vv-amber/50 px-3 py-1.5 text-xs text-vv-amber disabled:opacity-40"
           >
             Set Investigating
           </button>
           <button
             onClick={() => setStatus("PENDING_VERDICT")}
-            disabled={busy || activeRoom.status !== "INVESTIGATING"}
+            disabled={busy || observerReadOnly || activeRoom.status !== "INVESTIGATING"}
             className="border border-vv-accent/50 px-3 py-1.5 text-xs text-vv-accent disabled:opacity-40"
           >
             Open Poll
           </button>
           <button
             onClick={() => setStatus("CLOSED")}
-            disabled={busy || activeRoom.status !== "PENDING_VERDICT"}
+            disabled={busy || observerReadOnly || activeRoom.status !== "PENDING_VERDICT"}
             className="border border-vv-emerald/50 px-3 py-1.5 text-xs text-vv-emerald disabled:opacity-40"
           >
             Close Room

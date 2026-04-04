@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { normalizeClaim } from "@/lib/agent";
 import { getSessionUser } from "@/lib/auth";
 import { appendAuditLog } from "@/lib/audit";
+import { env } from "@/lib/env";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { maybeRecalculateHeatScores } from "@/lib/heat";
 import { prisma } from "@/lib/prisma";
@@ -18,7 +19,7 @@ const allowedImageMime = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export async function GET(request: NextRequest) {
   try {
-    await getSessionUser();
+    const user = await getSessionUser();
 
     await maybeRecalculateHeatScores();
 
@@ -60,7 +61,13 @@ export async function GET(request: NextRequest) {
       take: 60
     });
 
-    return NextResponse.json({ rooms });
+    const observerReadOnly = env.DEMO_BYPASS_AUTH && user.email === "observer@veriwire.demo";
+
+    return NextResponse.json({
+      rooms,
+      demoMode: env.DEMO_BYPASS_AUTH,
+      viewerRole: observerReadOnly ? "OBSERVER" : "CONTRIBUTOR"
+    });
   } catch (error) {
     return handleRouteError(error);
   }
