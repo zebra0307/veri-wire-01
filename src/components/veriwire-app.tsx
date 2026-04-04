@@ -106,6 +106,24 @@ type RoomsResponse = {
   viewerRole: "OBSERVER" | "CONTRIBUTOR";
 };
 
+type RoomPatchEvent = {
+  roomId: string;
+  reason: "initial-sync" | "delta";
+  marker: {
+    latestEvidenceAt: string | null;
+    latestVoteAt: string | null;
+    latestAgentEventAt: string | null;
+    latestAuditAt: string | null;
+  };
+  snapshot: {
+    room: RoomDetail | null;
+    roomSummary: RoomSummary | null;
+    weighted: Weighted;
+    recurrenceBanner: RecurrenceBanner;
+  } | null;
+  timestamp: string;
+};
+
 const statusClassMap: Record<RoomSummary["status"], string> = {
   OPEN: "text-vv-slate border-vv-slate/70",
   INVESTIGATING: "text-vv-amber border-vv-amber/70",
@@ -144,6 +162,16 @@ function formatAgo(dateIso: string) {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+function sortRoomsByPriority(items: RoomSummary[]) {
+  return [...items].sort((a, b) => {
+    if (b.heatScore !== a.heatScore) {
+      return b.heatScore - a.heatScore;
+    }
+
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
 }
 
 async function readJson<T>(url: string, init?: RequestInit) {
@@ -246,7 +274,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
 
   async function loadRooms() {
     const data = await readJson<RoomsResponse>("/api/rooms");
-    setRooms(data.rooms);
+    setRooms(sortRoomsByPriority(data.rooms));
     setDemoMode(data.demoMode);
     setViewerRole(data.viewerRole);
     return data;
@@ -343,36 +371,92 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }, [activeRoomId, bootstrapping]);
 
   useEffect(() => {
-    if (!activeRoomId) {
+    if (!activeRoomId || bootstrapping) {
       return;
     }
 
     const stream = new EventSource(`/api/rooms/${activeRoomId}/stream`);
 
-    const refreshRoom = () => {
-      loadRoom(activeRoomId).catch(() => {
-        // Stream refresh failures should not tear down UI state.
-      });
-      loadRooms().catch(() => {
-        // Feed refresh failures are ignored until next server event.
+    const decode = <T,>(rawEvent: Event): T | null => {
+      if (!(rawEvent instanceof MessageEvent) || typeof rawEvent.data !== "string") {
+        return null;
+      }
+
+      try {
+        return JSON.parse(rawEvent.data) as T;
+      } catch {
+        return null;
+      }
+    };
+
+    const applyPatch = (event: RoomPatchEvent) => {
+      const snapshot = event.snapshot;
+
+      if (!snapshot || !snapshot.room || !snapshot.roomSummary) {
+        return;
+      }
+
+      const roomSummary: RoomSummary = snapshot.roomSummary;
+
+      setError(null);
+      setActiveRoom(snapshot.room);
+      setWeighted(snapshot.weighted);
+      setRecurrenceBanner(snapshot.recurrenceBanner);
+      setRooms((previous) => {
+        const next = [...previous];
+        const index = next.findIndex((room) => room.id === roomSummary.id);
+
+        if (index >= 0) {
+          next[index] = roomSummary;
+        } else {
+          next.unshift(roomSummary);
+        }
+
+        return sortRoomsByPriority(next);
       });
     };
 
-    stream.addEventListener("room.update", refreshRoom);
+    stream.addEventListener("stream.ready", () => {
+      setError(null);
+    });
+
+    stream.addEventListener("room.patch", (rawEvent) => {
+      const event = decode<RoomPatchEvent>(rawEvent);
+
+      if (!event || event.roomId !== activeRoomId) {
+        return;
+      }
+
+      applyPatch(event);
+    });
 
     stream.addEventListener("stream.error", () => {
       setError("Live stream interrupted. Reconnecting...");
+
+      loadRoom(activeRoomId).catch(() => {
+        // Periodic refresh covers persistent failures.
+      });
+      loadRooms().catch(() => {
+        // Periodic refresh covers persistent failures.
+      });
     });
 
     stream.onerror = () => {
       setError("Realtime connection dropped. Falling back to periodic refresh.");
+
+      loadRoom(activeRoomId).catch(() => {
+        // Periodic refresh covers persistent failures.
+      });
+      loadRooms().catch(() => {
+        // Periodic refresh covers persistent failures.
+      });
     };
 
     return () => {
       stream.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRoomId]);
+  }, [activeRoomId, bootstrapping]);
 
   const latestAgentEvent = useMemo(() => {
     if (!activeRoom?.agentEvents?.length) {
