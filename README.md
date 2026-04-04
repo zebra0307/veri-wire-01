@@ -2,6 +2,36 @@
 
 VeriWire is a collaborative misinformation resolution platform with room-based investigation, bounded agent research, weighted voting, and Clarity Card output.
 
+## Demo first (5 minutes)
+
+1. Start the stack:
+
+```bash
+docker compose up -d --build
+```
+
+2. Open the app:
+
+- http://localhost:3000
+
+3. Seed deterministic demo rooms (demo mode only):
+
+```bash
+curl -X POST -sS http://localhost:3000/api/seed
+```
+
+4. Run smoke checks:
+
+```bash
+pnpm smoke
+```
+
+Expected demo room IDs:
+
+- `VWRM0001`
+- `VWRM0002`
+- `VWRM0003`
+
 ## Stack
 
 - Frontend: Next.js 14, App Router, TypeScript, Tailwind
@@ -88,7 +118,7 @@ curl -s https://$DOMAIN/api/health
 ## Live updates
 
 - Client subscribes to SSE stream at `/api/rooms/:roomId/stream`.
-- Stream emits `room.update` payload markers whenever room/evidence/vote/agent/audit state changes.
+- Stream emits `room.patch` payload snapshots whenever room/evidence/vote/agent/audit state changes.
 - If `SPACETIMEDB_ENDPOINT` is configured, audit events are also mirrored to your managed SpacetimeDB event ingest path.
 
 ## Heat score recalculation
