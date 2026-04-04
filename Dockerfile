@@ -20,4 +20,4 @@ COPY . .
 RUN pnpm prisma generate && pnpm build
 
 EXPOSE 3000
-CMD ["sh", "-c", "pnpm prisma migrate deploy || true; pnpm prisma db push; pnpm prisma db seed; node .next/standalone/server.js"]
+CMD ["sh", "-c", "pnpm prisma migrate deploy || true; pnpm prisma db push; pnpm prisma db seed; pnpm start"]
