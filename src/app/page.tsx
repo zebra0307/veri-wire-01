@@ -9,3 +9,4 @@ export default function Home({
 }) {
   return <VeriWireApp initialRoomId={searchParams.room ?? null} />;
 }
+

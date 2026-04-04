@@ -8,6 +8,7 @@ import { requireRoomRole } from "@/lib/security/authz";
 import { validateSourceUrl } from "@/lib/security/agent-guard";
 import { RateLimitError, enforceRateLimit } from "@/lib/security/rate-limit";
 import { sanitizeSnippet } from "@/lib/security/sanitize";
+import { publishSpacetimeEvent } from "@/lib/spacetime";
 import { evidenceSchema, removeEvidenceSchema } from "@/lib/validation";
 
 function sourceNameFromUrl(url: string) {
@@ -173,6 +174,19 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
         sourceUrl: evidence.sourceUrl,
         stance: evidence.stance
       }
+    });
+
+    await publishSpacetimeEvent({
+      roomId: params.roomId,
+      event: "room.evidence.created",
+      data: {
+        evidenceId: evidence.id,
+        submittedBy: evidence.submittedBy,
+        stance: evidence.stance,
+        sourceName: evidence.sourceName,
+        snippetPreview: evidence.snippet.slice(0, 240)
+      },
+      createdAt: evidence.createdAt.toISOString()
     });
 
     return NextResponse.json({ evidence });

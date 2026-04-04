@@ -98,18 +98,23 @@ async function run() {
     throw new Error(`/api/seed failed with status ${seedAttempt.response.status}`);
   }
 
-  const roomsPayload = await assertJson(
-    "/api/rooms",
-    undefined,
-    (data) => data && Array.isArray(data.rooms) && data.rooms.length >= 1,
-    "Rooms feed check failed"
-  );
+  const roomsRequest = await request("/api/rooms");
+  if (roomsRequest.response.status === 401) {
+    throw new Error(
+      "GET /api/rooms returned 401. For smoke tests set DEMO_BYPASS_AUTH=true or sign in (cookies). Production should keep DEMO_BYPASS_AUTH=false."
+    );
+  }
+  if (!roomsRequest.response.ok) {
+    throw new Error(`Rooms feed check failed (status ${roomsRequest.response.status})`);
+  }
+  const roomsPayload = roomsRequest.data;
+  if (!roomsPayload || !Array.isArray(roomsPayload.rooms) || roomsPayload.rooms.length < 1) {
+    throw new Error("Rooms feed check failed (unexpected payload or empty feed)");
+  }
   console.log(`- /api/rooms ok (${roomsPayload.rooms.length} rooms)`);
 
   const preferredRoom =
-    roomsPayload.rooms.find((room) => room.id === "VWRM0002") ||
-    roomsPayload.rooms.find((room) => room.id === "room-002") ||
-    roomsPayload.rooms[0];
+    roomsPayload.rooms.find((room) => room.id === "VWRM0002") || roomsPayload.rooms[0];
 
   if (!preferredRoom || !preferredRoom.id) {
     throw new Error("No valid room id found in /api/rooms response");

@@ -5,20 +5,39 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        vw: {
+          bg: "#09090b", // Deep charcoal/graphite
+          surface1: "#111113",
+          surface2: "#18181b",
+          surface3: "#27272a",
+          
+          accent: "#22d3ee", // Electric cyan
+          pending: "#f59e0b", // Amber
+          closed: "#52525b", // Muted neutral
+          
+          supports: "#10b981", // Controlled green
+          refutes: "#ef4444", // Sharp red
+          context: "#6366f1", // Violet-gray/Steel blue
+          
+          text: "#f4f4f5",
+          muted: "#71717a",
+          border: "rgba(255,255,255,0.08)",
+          agentGlow: "#22d3ee"
+        },
         vv: {
-          bg: "#0f0e0d",
-          surface1: "#161513",
-          surface2: "#1c1a18",
-          surface3: "#232120",
-          accent: "#2dd4bf",
+          bg: "#09090b",
+          surface1: "#111113",
+          surface2: "#18181b",
+          surface3: "#27272a",
+          accent: "#22d3ee",
           amber: "#f59e0b",
           emerald: "#10b981",
           crimson: "#ef4444",
-          slate: "#6b7280",
-          text: "#e5e4e2",
-          muted: "#6b6a68",
-          border: "rgba(255,255,255,0.07)",
-          agentGlow: "#6366f1"
+          slate: "#71717a",
+          text: "#f4f4f5",
+          muted: "#71717a",
+          border: "rgba(255,255,255,0.08)",
+          agentGlow: "#22d3ee"
         }
       },
       fontFamily: {

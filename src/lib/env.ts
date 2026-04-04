@@ -14,7 +14,11 @@ const optionalUrl = z.preprocess(emptyToUndefined, z.string().url().optional());
 const envSchema = z.object({
   NEXTAUTH_SECRET: z.string().min(16).default("dev-nextauth-secret-change-me"),
   NEXTAUTH_URL: z.string().url().default("http://localhost:3000"),
-  DATABASE_URL: z.string().min(1).default("postgresql://veriwire:veriwire@localhost:5432/veriwire"),
+  /** Supabase: Project Settings → Database → URI (use direct IPv4 or pooler with `?pgbouncer=true` for Prisma). */
+  DATABASE_URL: z.string().min(1, "Set DATABASE_URL to your Supabase Postgres connection string"),
+  /** Optional: Supabase project URL (for @/lib/supabase-server helpers). Database access uses DATABASE_URL + Prisma. */
+  SUPABASE_URL: optionalUrl,
+  SUPABASE_SERVICE_ROLE_KEY: optionalString,
   REDIS_URL: optionalString,
   GITHUB_ID: optionalString,
   GITHUB_SECRET: optionalString,

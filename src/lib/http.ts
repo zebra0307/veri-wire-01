@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { AuthorizationError } from "@/lib/security/authz";
 import { ApiError } from "@/types/domain";
 
 export class ApiHttpError extends Error {
@@ -26,6 +27,10 @@ export function handleRouteError(error: unknown) {
       detail: error.detail,
       rule: error.rule
     });
+  }
+
+  if (error instanceof AuthorizationError) {
+    return jsonError(403, { error: error.message });
   }
 
   if (error instanceof Error) {

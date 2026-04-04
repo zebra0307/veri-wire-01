@@ -28,3 +28,13 @@ export const statusSchema = z.object({
 export const removeEvidenceSchema = z.object({
   evidenceId: z.string().min(1)
 });
+
+export const roomMessageSchema = z
+  .object({
+    body: z.string().min(1).max(2000),
+    kind: z.enum(["CHAT", "PROOF_NOTE"]).default("CHAT"),
+    evidenceId: z.string().min(1).optional()
+  })
+  .refine((data) => data.kind !== "PROOF_NOTE" || Boolean(data.evidenceId), {
+    message: "PROOF_NOTE requires evidenceId"
+  });

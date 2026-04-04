@@ -10,9 +10,11 @@ Minimum required environment values:
 
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL`
-- `DATABASE_URL`
+- `DATABASE_URL` (Supabase Postgres URI from the Supabase dashboard)
 - `APP_URL`
 - `INTERNAL_AGENT_SECRET`
+
+Apply the Prisma schema to Supabase **before** or **right after** first container start (from your laptop or CI: `pnpm prisma db push` or `pnpm prisma migrate deploy` using the same `DATABASE_URL`). The Docker image no longer runs `db push` or seed on startup.
 
 Optional integrations:
 
@@ -54,7 +56,7 @@ SMOKE_BASE_URL="https://your-domain" pnpm smoke
 
 ## 4) Demo Mode Seed (Optional)
 
-When demo auth bypass is enabled (`DEMO_BYPASS_AUTH=true`), seed deterministic demo rooms:
+When demo auth bypass is enabled (`DEMO_BYPASS_AUTH=true`) — **not for production** — seed deterministic demo rooms:
 
 ```bash
 curl -X POST -sS http://localhost:3000/api/seed

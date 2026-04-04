@@ -79,9 +79,22 @@ async function callGemini(prompt: string) {
     return null;
   }
 
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-  const result = await model.generateContent(`${VERI_AGENT_SYSTEM_PROMPT}\n\n${prompt}`);
-  return result.response.text();
+  const preferredModel = process.env.GEMINI_MODEL?.trim() || "gemini-3.1-flash";
+  const candidateModels = [preferredModel, "gemini-2.5-flash", "gemini-2.0-flash-exp"];
+
+  let lastError: unknown;
+
+  for (const modelName of candidateModels) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(`${VERI_AGENT_SYSTEM_PROMPT}\n\n${prompt}`);
+      return result.response.text();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 function extractJsonPayload(raw: string) {

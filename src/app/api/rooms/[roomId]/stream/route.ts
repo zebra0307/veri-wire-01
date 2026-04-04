@@ -3,6 +3,7 @@ import { computeWeightedResults } from "@/lib/agent";
 import { getSessionUser } from "@/lib/auth";
 import { handleRouteError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { fetchRecentRoomMessagesChronological, ROOM_MESSAGE_SNAPSHOT_LIMIT } from "@/lib/room-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ type Marker = {
   latestVoteAt: string | null;
   latestAgentEventAt: string | null;
   latestAuditAt: string | null;
+  latestMessageAt: string | null;
   latestAgentStep: string | null;
   latestAuditAction: string | null;
 };
@@ -37,7 +39,7 @@ type Snapshot = {
 };
 
 async function buildRoomMarker(roomId: string) {
-  const [room, latestEvidence, latestVote, latestAgentEvent, latestAudit] = await Promise.all([
+  const [room, latestEvidence, latestVote, latestAgentEvent, latestAudit, latestMessage] = await Promise.all([
     prisma.room.findUnique({
       where: { id: roomId },
       select: {
@@ -69,6 +71,11 @@ async function buildRoomMarker(roomId: string) {
       where: { roomId },
       select: { createdAt: true, action: true },
       orderBy: { createdAt: "desc" }
+    }),
+    prisma.roomMessage.findFirst({
+      where: { roomId },
+      select: { createdAt: true },
+      orderBy: { createdAt: "desc" }
     })
   ]);
 
@@ -78,6 +85,7 @@ async function buildRoomMarker(roomId: string) {
     latestVoteAt: latestVote?.createdAt?.toISOString() ?? null,
     latestAgentEventAt: latestAgentEvent?.createdAt?.toISOString() ?? null,
     latestAuditAt: latestAudit?.createdAt?.toISOString() ?? null,
+    latestMessageAt: latestMessage?.createdAt?.toISOString() ?? null,
     latestAgentStep: latestAgentEvent?.step ?? null,
     latestAuditAction: latestAudit?.action ?? null
   } satisfies Marker;
@@ -175,6 +183,8 @@ async function buildRoomSnapshot(roomId: string): Promise<Snapshot | null> {
     }))
   );
 
+  const messages = await fetchRecentRoomMessagesChronological(roomId, ROOM_MESSAGE_SNAPSHOT_LIMIT);
+
   const roomSummary = {
     id: room.id,
     claimRaw: room.claimRaw,
@@ -193,7 +203,7 @@ async function buildRoomSnapshot(roomId: string): Promise<Snapshot | null> {
   };
 
   return {
-    room,
+    room: { ...room, messages },
     roomSummary,
     weighted,
     recurrenceBanner

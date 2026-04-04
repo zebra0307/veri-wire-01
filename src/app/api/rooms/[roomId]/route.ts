@@ -3,6 +3,7 @@ import { computeWeightedResults } from "@/lib/agent";
 import { getSessionUser } from "@/lib/auth";
 import { handleRouteError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { fetchRecentRoomMessagesChronological, ROOM_MESSAGE_SNAPSHOT_LIMIT } from "@/lib/room-messages";
 
 export async function GET(_request: NextRequest, { params }: { params: { roomId: string } }) {
   try {
@@ -107,7 +108,13 @@ export async function GET(_request: NextRequest, { params }: { params: { roomId:
       };
     }
 
-    return NextResponse.json({ room, weighted, recurrenceBanner });
+    const messages = await fetchRecentRoomMessagesChronological(params.roomId, ROOM_MESSAGE_SNAPSHOT_LIMIT);
+
+    return NextResponse.json({
+      room: { ...room, messages },
+      weighted,
+      recurrenceBanner
+    });
   } catch (error) {
     return handleRouteError(error);
   }

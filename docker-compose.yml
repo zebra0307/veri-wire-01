@@ -6,32 +6,21 @@ services:
       args:
         NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
         NEXTAUTH_URL: ${NEXTAUTH_URL}
-        DATABASE_URL: postgresql://veriwire:${POSTGRES_PASSWORD}@postgres:5432/veriwire
+        DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres}
         REDIS_URL: redis://redis:6379
     env_file:
       - .env.production
     environment:
-      - DATABASE_URL=postgresql://veriwire:${POSTGRES_PASSWORD}@postgres:5432/veriwire
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - NEXTAUTH_URL=${NEXTAUTH_URL}
       - APP_URL=${NEXTAUTH_URL}
       - HOSTNAME=0.0.0.0
       - PORT=3000
     depends_on:
-      - postgres
       - redis
     ports:
       - "3000:3000"
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_DB=veriwire
-      - POSTGRES_USER=veriwire
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
   redis:
@@ -55,6 +44,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
   caddy_data:
   caddy_config:

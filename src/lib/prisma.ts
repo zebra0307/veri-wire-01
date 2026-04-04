@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
+/** Connects to Postgres; use Supabase `DATABASE_URL` from Project Settings → Database. */
+
 declare global {
   // eslint-disable-next-line no-var
   var prismaGlobal: PrismaClient | undefined;

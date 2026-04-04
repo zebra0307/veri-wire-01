@@ -43,11 +43,17 @@ if (
   );
 }
 
+if (providers.length === 0 && !env.DEMO_BYPASS_AUTH) {
+  console.warn(
+    "[veriwire] No NextAuth providers configured. Set GITHUB_ID/GITHUB_SECRET and/or email SMTP env vars, or set DEMO_BYPASS_AUTH=true for local demo only."
+  );
+}
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   providers,
   pages: {
-    signIn: "/"
+    signIn: "/login"
   },
   session: {
     strategy: "jwt",
@@ -98,22 +104,33 @@ export async function getSessionUser(): Promise<SessionUser> {
     };
   }
 
-  if (env.DEMO_BYPASS_AUTH) {
-    const observer = await prisma.user.findUnique({
-      where: {
-        email: "observer@veriwire.demo"
-      }
-    });
-
-    if (observer) {
-      return {
-        id: observer.id,
-        name: observer.name ?? null,
-        email: observer.email ?? null,
-        role: observer.role
-      };
-    }
+  if (!env.DEMO_BYPASS_AUTH) {
+    throw new ApiHttpError(
+      401,
+      "Unauthorized",
+      "Sign in at /login, or enable DEMO_BYPASS_AUTH=true for local demo only."
+    );
   }
 
-  throw new ApiHttpError(401, "Unauthorized");
+  const demoModerator = await prisma.user.upsert({
+    where: {
+      email: "moderator@veriwire.demo"
+    },
+    update: {
+      name: "Demo Moderator",
+      role: GlobalRole.MODERATOR
+    },
+    create: {
+      email: "moderator@veriwire.demo",
+      name: "Demo Moderator",
+      role: GlobalRole.MODERATOR
+    }
+  });
+
+  return {
+    id: demoModerator.id,
+    name: demoModerator.name ?? null,
+    email: demoModerator.email ?? null,
+    role: demoModerator.role
+  };
 }

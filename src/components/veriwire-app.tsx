@@ -78,6 +78,21 @@ type RoomDetail = RoomSummary & {
     title: string;
     status: "PENDING" | "DONE";
   }>;
+  messages: Array<{
+    id: string;
+    body: string;
+    kind: "CHAT" | "PROOF_NOTE";
+    evidenceId: string | null;
+    createdAt: string;
+    user: { id: string; name: string | null; image: string | null };
+    evidence: {
+      id: string;
+      sourceName: string;
+      sourceUrl: string;
+      snippet: string;
+      stance: "SUPPORTS" | "REFUTES" | "CONTEXT";
+    } | null;
+  }>;
 };
 
 type Weighted = {
@@ -114,6 +129,7 @@ type RoomPatchEvent = {
     latestVoteAt: string | null;
     latestAgentEventAt: string | null;
     latestAuditAt: string | null;
+    latestMessageAt?: string | null;
   };
   snapshot: {
     room: RoomDetail | null;
@@ -174,6 +190,16 @@ function sortRoomsByPriority(items: RoomSummary[]) {
   });
 }
 
+class FetchJsonError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "FetchJsonError";
+    this.status = status;
+  }
+}
+
 async function readJson<T>(url: string, init?: RequestInit) {
   const res = await fetch(url, {
     ...init,
@@ -183,11 +209,20 @@ async function readJson<T>(url: string, init?: RequestInit) {
     }
   });
 
-  const data = await res.json();
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
 
   if (!res.ok) {
-    const message = data?.detail ?? data?.error ?? "Request failed";
-    throw new Error(message);
+    const payload = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+    const message =
+      (typeof payload?.detail === "string" && payload.detail) ||
+      (typeof payload?.error === "string" && payload.error) ||
+      "Request failed";
+    throw new FetchJsonError(res.status, message);
   }
 
   return data as T;
@@ -231,11 +266,12 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   const [activeRoom, setActiveRoom] = useState<RoomDetail | null>(null);
   const [weighted, setWeighted] = useState<Weighted | null>(null);
   const [recurrenceBanner, setRecurrenceBanner] = useState<RecurrenceBanner>(null);
-  const [demoMode, setDemoMode] = useState(true);
-  const [viewerRole, setViewerRole] = useState<"OBSERVER" | "CONTRIBUTOR">("OBSERVER");
+  const [demoMode, setDemoMode] = useState(false);
+  const [viewerRole, setViewerRole] = useState<"OBSERVER" | "CONTRIBUTOR">("CONTRIBUTOR");
   const [showDemoBanner, setShowDemoBanner] = useState(true);
   const [inlineMessage, setInlineMessage] = useState<string | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [claimText, setClaimText] = useState("");
@@ -244,7 +280,9 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [evidenceStance, setEvidenceStance] = useState<"SUPPORTS" | "REFUTES" | "CONTEXT">("REFUTES");
   const [voteVerdict, setVoteVerdict] = useState<"TRUE" | "FALSE" | "UNCLEAR">("FALSE");
-  const [mobileTab, setMobileTab] = useState<"FEED" | "ROOM" | "AGENT" | "CARD">("ROOM");
+  const [mobileTab, setMobileTab] = useState<"FEED" | "ROOM" | "CHAT" | "AGENT" | "CARD">("ROOM");
+  const [chatDraft, setChatDraft] = useState("");
+  const [proofThreadEvidenceId, setProofThreadEvidenceId] = useState("");
 
   const observerReadOnly = demoMode && viewerRole === "OBSERVER";
 
@@ -263,7 +301,6 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
     }
 
     const preferred =
-      items.find((room) => room.id === "room-002") ??
       items.find((room) => room.id === "VWRM0002") ??
       items.find((room) => room.status === "PENDING_VERDICT" && room.recurrenceCount > 0) ??
       items[0] ??
@@ -303,7 +340,12 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load data");
+      if (err instanceof FetchJsonError && err.status === 401) {
+        setAuthRequired(true);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to load data");
+      }
     }
   }
 
@@ -316,13 +358,13 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         const initial = await loadRooms();
 
         let roomsToUse = initial.rooms;
-        if (roomsToUse.length < 3) {
+        if (initial.demoMode && roomsToUse.length < 3) {
           try {
             await fetch("/api/seed", { method: "POST" });
             const seeded = await loadRooms();
             roomsToUse = seeded.rooms;
           } catch {
-            // Seed guard is best-effort in packet 1 and becomes deterministic in packet 5.
+            // Demo seed is optional; API returns 403 when DEMO_BYPASS_AUTH is off.
           }
         }
 
@@ -333,7 +375,12 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         }
       } catch (err) {
         if (mounted) {
-          setError(err instanceof Error ? err.message : "Failed to initialize demo mode");
+          if (err instanceof FetchJsonError && err.status === 401) {
+            setAuthRequired(true);
+            setError(null);
+          } else {
+            setError(err instanceof Error ? err.message : "Failed to load rooms");
+          }
         }
       } finally {
         if (mounted) {
@@ -553,6 +600,41 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
     }
   }
 
+  async function submitRoomMessage() {
+    if (blockObserverAction()) {
+      return;
+    }
+
+    if (!activeRoomId || !chatDraft.trim()) {
+      return;
+    }
+
+    try {
+      setBusy(true);
+      setError(null);
+      const payload: { body: string; kind: "CHAT" | "PROOF_NOTE"; evidenceId?: string } = {
+        body: chatDraft.trim(),
+        kind: proofThreadEvidenceId ? "PROOF_NOTE" : "CHAT"
+      };
+
+      if (proofThreadEvidenceId) {
+        payload.evidenceId = proofThreadEvidenceId;
+      }
+
+      await readJson(`/api/rooms/${activeRoomId}/messages`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      setChatDraft("");
+      setProofThreadEvidenceId("");
+      await loadRoom(activeRoomId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send message");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function castVote() {
     if (blockObserverAction()) {
       return;
@@ -652,6 +734,26 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   const observerNotice = inlineMessage ?? (observerReadOnly ? "Sign in to contribute. Demo observers are read-only." : null);
+
+  if (!bootstrapping && authRequired) {
+    return (
+      <main className="min-h-screen p-6 md:p-10">
+        <div className="mx-auto max-w-md border border-white/10 bg-vv-surface1/90 p-6 text-vv-text">
+          <p className="font-mono text-xs uppercase tracking-[0.28em] text-vv-accent">VeriWire</p>
+          <h1 className="mt-3 text-xl font-semibold">Sign in required</h1>
+          <p className="mt-2 text-sm text-vv-muted">
+            The API rejected this session. Use GitHub or email sign-in, or enable demo bypass for local development.
+          </p>
+          <a
+            href="/login"
+            className="mt-6 inline-block border border-vv-accent/60 bg-vv-accent/10 px-4 py-2 text-sm font-semibold text-vv-accent hover:bg-vv-accent/20"
+          >
+            Go to sign in
+          </a>
+        </div>
+      </main>
+    );
+  }
 
   if (bootstrapping) {
     return (
@@ -831,6 +933,75 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                 })}
               </div>
 
+              <div className="border-t border-white/10 bg-vv-surface3/40 px-3 py-3">
+                <p className="mb-2 font-mono text-xs uppercase tracking-[0.16em] text-vv-muted">Rumour room (live)</p>
+                <p className="mb-2 text-[11px] text-vv-muted">
+                  Discuss the claim and tie notes to a proof. Updates sync over the room stream; optional SpacetimeDB bridge
+                  receives <span className="font-mono">room.message.created</span> for external realtime fan-out.
+                </p>
+                <div className="mb-2 max-h-36 space-y-2 overflow-y-auto rounded border border-white/10 bg-vv-surface2/80 p-2">
+                  {(activeRoom.messages ?? []).length === 0 ? (
+                    <p className="text-xs text-vv-muted">No messages yet.</p>
+                  ) : (
+                    (activeRoom.messages ?? []).map((msg) => (
+                      <div key={msg.id} className="border-b border-white/5 pb-2 text-xs last:border-0 last:pb-0">
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] text-vv-muted">
+                          <span className="font-mono">{msg.user.name ?? msg.user.id.slice(0, 8)}</span>
+                          <span>{formatAgo(msg.createdAt)}</span>
+                          {msg.kind === "PROOF_NOTE" ? (
+                            <span className="status-pill border-vv-accent/50 text-vv-accent">proof thread</span>
+                          ) : null}
+                        </div>
+                        {msg.evidence ? (
+                          <a
+                            href={msg.evidence.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1 block truncate text-[11px] text-vv-accent hover:underline"
+                          >
+                            Re: {msg.evidence.sourceName}
+                          </a>
+                        ) : null}
+                        <p className="mt-1 whitespace-pre-wrap text-sm text-vv-text">{msg.body}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="grid gap-2 md:grid-cols-[1fr_140px_auto]">
+                  <textarea
+                    value={chatDraft}
+                    onChange={(event) => setChatDraft(event.target.value)}
+                    maxLength={2000}
+                    rows={2}
+                    className="w-full resize-none border border-white/10 bg-vv-surface2 px-3 py-2 text-sm outline-none focus:border-vv-accent"
+                    placeholder="Discuss the rumour or react to proofs…"
+                    disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
+                  />
+                  <select
+                    value={proofThreadEvidenceId}
+                    onChange={(event) => setProofThreadEvidenceId(event.target.value)}
+                    className="border border-white/10 bg-vv-surface2 px-2 py-2 text-[11px] outline-none focus:border-vv-accent"
+                    disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
+                  >
+                    <option value="">Chat (no proof link)</option>
+                    {activeRoom.evidence.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        Proof: {ev.sourceName.slice(0, 28)}
+                        {ev.sourceName.length > 28 ? "…" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void submitRoomMessage()}
+                    disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly || !chatDraft.trim()}
+                    className="border border-vv-accent/70 bg-vv-accent/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-vv-accent disabled:opacity-40"
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+
               <div className="border-t border-white/10 bg-vv-surface1 p-3">
                 <p className="mb-2 text-xs uppercase tracking-[0.14em] text-vv-muted">Submit Evidence</p>
                 <div className="grid gap-2 md:grid-cols-[1fr_160px_120px]">
@@ -969,8 +1140,8 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
       </div>
 
       <div className="mx-auto mt-3 max-w-[1460px] rounded border border-white/10 bg-vv-surface1 p-3 md:hidden">
-        <div className="mb-2 grid grid-cols-4 gap-2">
-          {(["FEED", "ROOM", "AGENT", "CARD"] as const).map((tab) => (
+        <div className="mb-2 grid grid-cols-5 gap-1">
+          {(["FEED", "ROOM", "CHAT", "AGENT", "CARD"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setMobileTab(tab)}
@@ -1006,6 +1177,50 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
           <div className="space-y-2 text-sm">
             <p className="font-mono text-vv-text">{activeRoom.claimRaw}</p>
             <p className="text-xs text-vv-muted">{activeRoom.evidence.length} evidence items</p>
+          </div>
+        ) : null}
+
+        {mobileTab === "CHAT" && activeRoom ? (
+          <div className="max-h-[50vh] space-y-2 overflow-y-auto text-sm">
+            {(activeRoom.messages ?? []).map((msg) => (
+              <div key={msg.id} className="border border-white/10 p-2 text-xs">
+                <p className="font-mono text-[10px] text-vv-muted">
+                  {msg.user.name ?? msg.user.id.slice(0, 8)} · {formatAgo(msg.createdAt)}
+                  {msg.kind === "PROOF_NOTE" ? " · proof" : ""}
+                </p>
+                <p className="mt-1 text-vv-text">{msg.body}</p>
+              </div>
+            ))}
+            <select
+              value={proofThreadEvidenceId}
+              onChange={(event) => setProofThreadEvidenceId(event.target.value)}
+              className="w-full border border-white/10 bg-vv-surface2 p-2 text-[11px]"
+              disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
+            >
+              <option value="">Chat (no proof link)</option>
+              {activeRoom.evidence.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  Proof: {ev.sourceName.slice(0, 24)}
+                </option>
+              ))}
+            </select>
+            <textarea
+              value={chatDraft}
+              onChange={(event) => setChatDraft(event.target.value)}
+              maxLength={2000}
+              rows={2}
+              className="w-full border border-white/10 bg-vv-surface2 p-2 text-sm"
+              placeholder="Message…"
+              disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
+            />
+            <button
+              type="button"
+              onClick={() => void submitRoomMessage()}
+              disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly || !chatDraft.trim()}
+              className="w-full border border-vv-accent/70 bg-vv-accent/10 py-2 text-xs font-semibold text-vv-accent"
+            >
+              Send
+            </button>
           </div>
         ) : null}
 

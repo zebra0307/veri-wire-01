@@ -2,6 +2,7 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Database is Postgres; production uses Supabase (connection string in DATABASE_URL).
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -56,6 +57,11 @@ enum ChecklistStatus {
   DONE
 }
 
+enum RoomMessageKind {
+  CHAT
+  PROOF_NOTE
+}
+
 model User {
   id                 String       @id @default(cuid())
   name               String?
@@ -77,6 +83,7 @@ model User {
   memberships        RoomMember[]
   votes              Vote[]
   auditLogs          AuditLog[]
+  roomMessages       RoomMessage[]
 }
 
 model Account {
@@ -145,6 +152,7 @@ model Room {
   auditLogs       AuditLog[]
   checklistTasks  ChecklistTask[]
   publishedQueue  PublishedQueue?
+  messages        RoomMessage[]
 
   @@index([status, heatScore(sort: Desc)])
   @@index([claimNormalized])
@@ -202,6 +210,24 @@ model Evidence {
   removedAt         DateTime?
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  messageRefs RoomMessage[]
+
+  @@index([roomId, createdAt])
+}
+
+model RoomMessage {
+  id         String          @id @default(cuid())
+  roomId     String
+  userId     String
+  body       String          @db.VarChar(2000)
+  kind       RoomMessageKind @default(CHAT)
+  evidenceId String?
+  createdAt  DateTime        @default(now())
+
+  room     Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evidence Evidence? @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+
   @@index([roomId, createdAt])
 }
 
