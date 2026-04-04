@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Confidence, EvidenceType, RoomStatus, Stance } from "@prisma/client";
+import { z } from "zod";
 import { appendAuditLog } from "@/lib/audit";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
@@ -37,6 +38,26 @@ type SearchResult = {
   snippet: string;
 };
 
+type AgentAssessment = {
+  verdict: "TRUE" | "FALSE" | "UNCLEAR";
+  confidence: Confidence;
+  summary: string;
+};
+
+const claimRewriteSchema = z.object({
+  claimNormalized: z.string().min(8).max(260)
+});
+
+const queryPlanSchema = z.object({
+  queries: z.array(z.string().min(4).max(140)).min(3).max(5)
+});
+
+const assessmentSchema = z.object({
+  verdict: z.enum(["TRUE", "FALSE", "UNCLEAR"]),
+  confidence: z.nativeEnum(Confidence),
+  summary: z.string().min(20).max(2000)
+});
+
 function sourceNameFromUrl(url: string) {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
@@ -55,6 +76,51 @@ async function callGemini(prompt: string) {
   return result.response.text();
 }
 
+function extractJsonPayload(raw: string) {
+  const fenced = raw.match(/```json\s*([\s\S]*?)```/i)?.[1] ?? raw.match(/```\s*([\s\S]*?)```/i)?.[1];
+  if (fenced) {
+    return fenced.trim();
+  }
+
+  const objectMatch = raw.match(/\{[\s\S]*\}/);
+  const arrayMatch = raw.match(/\[[\s\S]*\]/);
+
+  if (objectMatch && arrayMatch) {
+    return objectMatch.index! <= arrayMatch.index! ? objectMatch[0] : arrayMatch[0];
+  }
+
+  if (objectMatch) {
+    return objectMatch[0];
+  }
+
+  if (arrayMatch) {
+    return arrayMatch[0];
+  }
+
+  return null;
+}
+
+async function callGeminiJson<T>(prompt: string, schema: z.ZodType<T>): Promise<T | null> {
+  const generated = await callGemini(`${prompt}\nReturn strict JSON only. Do not include markdown.`);
+
+  if (!generated) {
+    return null;
+  }
+
+  const jsonPayload = extractJsonPayload(generated);
+  if (!jsonPayload) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(jsonPayload) as unknown;
+    const result = schema.safeParse(parsed);
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function normalizeClaim(claimRaw: string) {
   const cleaned = sanitizeClaimText(claimRaw);
   const blocked = classifyPromptBlock(cleaned);
@@ -66,10 +132,12 @@ export async function normalizeClaim(claimRaw: string) {
     };
   }
 
-  const prompt = `Claim to verify: ${cleaned}\nTask: Rewrite this as a concise core factual assertion in one sentence.`;
-  const generated = await callGemini(prompt);
+  const prompt = `Claim to verify: ${cleaned}
+Task: Rewrite this as one concise factual assertion preserving the original meaning.
+Output JSON: {"claimNormalized":"..."}`;
+  const generated = await callGeminiJson(prompt, claimRewriteSchema);
 
-  if (!generated) {
+  if (!generated?.claimNormalized) {
     return {
       blocked: null,
       claimNormalized: cleaned
@@ -78,66 +146,35 @@ export async function normalizeClaim(claimRaw: string) {
 
   return {
     blocked: null,
-    claimNormalized: sanitizeClaimText(generated)
+    claimNormalized: sanitizeClaimText(generated.claimNormalized)
   };
 }
 
 async function generateSearchQueries(claimNormalized: string) {
-  const prompt = `Claim to verify: ${claimNormalized}\nTask: Generate 3 to 5 short web search queries as a JSON array.`;
-  const generated = await callGemini(prompt);
+  const prompt = `Claim to verify: ${claimNormalized}
+Task: Generate 3 to 5 short web search queries designed to surface high-quality public sources.
+Output JSON: {"queries":["...","..."]}`;
 
-  if (!generated) {
-    return [
-      `${claimNormalized} fact check`,
-      `${claimNormalized} official statement`,
-      `${claimNormalized} verification`
-    ];
-  }
+  const generated = await callGeminiJson(prompt, queryPlanSchema);
 
-  const inlineArray = generated.match(/\[[\s\S]*\]/)?.[0];
+  const fallback = [
+    `${claimNormalized} fact check`,
+    `${claimNormalized} official statement`,
+    `${claimNormalized} verification`
+  ];
 
-  if (!inlineArray) {
-    return [
-      `${claimNormalized} fact check`,
-      `${claimNormalized} official statement`,
-      `${claimNormalized} verification`
-    ];
-  }
+  const candidate = generated?.queries ?? fallback;
+  const normalized = [...new Set(candidate.map((query) => sanitizeClaimText(query)).filter(Boolean))];
 
-  try {
-    const parsed = JSON.parse(inlineArray) as string[];
-    return parsed.slice(0, 5);
-  } catch {
-    return [
-      `${claimNormalized} fact check`,
-      `${claimNormalized} official statement`,
-      `${claimNormalized} verification`
-    ];
-  }
+  return normalized.slice(0, 5);
 }
 
-async function fetchSearchResults(claimNormalized: string, queries: string[]): Promise<SearchResult[]> {
+async function fetchSearchResults(_claimNormalized: string, queries: string[]): Promise<SearchResult[]> {
   if (!env.BRAVE_SEARCH_API_KEY) {
-    return [
-      {
-        title: "WHO guidance on rumor topic",
-        url: "https://www.who.int/news-room",
-        snippet: `Reference source discussing: ${claimNormalized}`
-      },
-      {
-        title: "Government advisory",
-        url: "https://www.gov.in",
-        snippet: `Government portal update related to: ${claimNormalized}`
-      },
-      {
-        title: "Independent fact check",
-        url: "https://www.snopes.com",
-        snippet: `Fact-check publication concerning: ${claimNormalized}`
-      }
-    ];
+    return [];
   }
 
-  const all: SearchResult[] = [];
+  const all = new Map<string, SearchResult>();
 
   for (const query of queries) {
     const response = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3`, {
@@ -157,15 +194,22 @@ async function fetchSearchResults(claimNormalized: string, queries: string[]): P
     };
 
     for (const result of data.web?.results ?? []) {
-      all.push({
-        title: result.title,
-        url: result.url,
-        snippet: sanitizeSnippet(result.description, 220)
-      });
+      const sourceGuard = validateSourceUrl(result.url);
+      if (sourceGuard.blocked) {
+        continue;
+      }
+
+      if (!all.has(result.url)) {
+        all.set(result.url, {
+          title: sanitizeSnippet(result.title, 140),
+          url: result.url,
+          snippet: sanitizeSnippet(result.description, 220)
+        });
+      }
     }
   }
 
-  return all.slice(0, 8);
+  return Array.from(all.values()).slice(0, 8);
 }
 
 function classifyStance(claim: string, snippet: string): { stance: Stance; type: EvidenceType; confidence: number } {
@@ -241,23 +285,57 @@ function confidenceLabel(score: number): Confidence {
   return Confidence.LOW;
 }
 
-async function summarizeEvidence(claim: string, evidenceRows: Array<{ sourceUrl: string; snippet: string; stance: Stance }>) {
-  const serialized = JSON.stringify(evidenceRows.slice(0, 6));
-  const prompt = `Claim to verify: ${claim}\nSearch results provided: ${serialized}\nTask: Analyze these results. For each relevant result produce a structured evidence item. Then produce an overall summary with your confidence level and recommended verdict.`;
+function fallbackAssessment(evidenceRows: Array<{ sourceUrl: string; snippet: string; stance: Stance }>): AgentAssessment {
+  const counts = {
+    SUPPORTS: evidenceRows.filter((row) => row.stance === Stance.SUPPORTS).length,
+    REFUTES: evidenceRows.filter((row) => row.stance === Stance.REFUTES).length,
+    CONTEXT: evidenceRows.filter((row) => row.stance === Stance.CONTEXT).length
+  };
 
-  const generated = await callGemini(prompt);
-
-  if (!generated) {
-    const defaultText = [
-      "OBSERVATION: Available public sources include mixed evidence with multiple independent references.",
-      "INFERENCE: The claim appears likely false when refuting evidence outweighs supporting evidence.",
-      "SPECULATION: Additional authoritative data may refine confidence."
-    ].join("\n");
-
-    return defaultText;
+  let verdict: AgentAssessment["verdict"] = "UNCLEAR";
+  if (counts.REFUTES > counts.SUPPORTS && counts.REFUTES >= 2) {
+    verdict = "FALSE";
+  } else if (counts.SUPPORTS > counts.REFUTES && counts.SUPPORTS >= 2) {
+    verdict = "TRUE";
   }
 
-  return generated;
+  const dominant = Math.max(counts.REFUTES, counts.SUPPORTS, counts.CONTEXT, 1);
+  const confidence = confidenceLabel(Math.min(0.95, 0.45 + dominant / Math.max(evidenceRows.length, 1) / 2));
+
+  return {
+    verdict,
+    confidence,
+    summary: [
+      `OBSERVATION: Processed ${evidenceRows.length} eligible public sources.`,
+      `INFERENCE: Evidence counts -> supports=${counts.SUPPORTS}, refutes=${counts.REFUTES}, context=${counts.CONTEXT}.`,
+      `SPECULATION: Additional authoritative reporting may increase certainty.`
+    ].join("\n")
+  };
+}
+
+async function assessEvidence(claim: string, evidenceRows: Array<{ sourceUrl: string; snippet: string; stance: Stance }>) {
+  if (!evidenceRows.length) {
+    return fallbackAssessment(evidenceRows);
+  }
+
+  const prompt = `Claim to verify: ${claim}
+Evidence rows (JSON): ${JSON.stringify(evidenceRows.slice(0, 8))}
+Task:
+1) Determine recommended verdict from evidence: TRUE | FALSE | UNCLEAR.
+2) Determine confidence: LOW | MEDIUM | HIGH.
+3) Write a concise summary with exactly three lines prefixed OBSERVATION:, INFERENCE:, SPECULATION:.
+Output JSON: {"verdict":"TRUE|FALSE|UNCLEAR","confidence":"LOW|MEDIUM|HIGH","summary":"OBSERVATION: ...\\nINFERENCE: ...\\nSPECULATION: ..."}`;
+
+  const generated = await callGeminiJson(prompt, assessmentSchema);
+  if (!generated) {
+    return fallbackAssessment(evidenceRows);
+  }
+
+  return {
+    verdict: generated.verdict,
+    confidence: generated.confidence,
+    summary: sanitizeSnippet(generated.summary, 1800)
+  } satisfies AgentAssessment;
 }
 
 export async function runAgentPipeline(roomId: string, actorId?: string) {
@@ -325,6 +403,27 @@ export async function runAgentPipeline(roomId: string, actorId?: string) {
   });
 
   const results = await fetchSearchResults(room.claimNormalized, queries);
+
+  if (!env.BRAVE_SEARCH_API_KEY) {
+    await prisma.agentEvent.create({
+      data: {
+        roomId,
+        step: "SOURCE_FETCH",
+        detail: "Brave API key missing. Skipping web retrieval for this run.",
+        progress: 30
+      }
+    });
+  } else if (results.length === 0) {
+    await prisma.agentEvent.create({
+      data: {
+        roomId,
+        step: "SOURCE_FETCH",
+        detail: "No eligible public sources returned from Brave for generated queries.",
+        progress: 30
+      }
+    });
+  }
+
   const savedEvidence: Array<{ sourceUrl: string; snippet: string; stance: Stance }> = [];
 
   for (const [index, result] of results.entries()) {
@@ -394,8 +493,8 @@ export async function runAgentPipeline(roomId: string, actorId?: string) {
     });
   }
 
-  const summary = await summarizeEvidence(room.claimNormalized, savedEvidence);
-  const outputGuard = classifyOutputBlock(summary);
+  const assessment = await assessEvidence(room.claimNormalized, savedEvidence);
+  const outputGuard = classifyOutputBlock(assessment.summary);
 
   if (outputGuard.blocked) {
     await prisma.agentEvent.create({
@@ -423,13 +522,12 @@ export async function runAgentPipeline(roomId: string, actorId?: string) {
   }
 
   const refutes = savedEvidence.filter((row) => row.stance === Stance.REFUTES).length;
-  const confidenceScore = savedEvidence.length === 0 ? 0.3 : Math.min(0.95, 0.45 + refutes / Math.max(savedEvidence.length, 1));
 
   await prisma.agentEvent.create({
     data: {
       roomId,
       step: "SUMMARY",
-      detail: summary,
+      detail: `${assessment.summary}\nVERDICT: ${assessment.verdict} (${assessment.confidence})`,
       progress: 100
     }
   });
@@ -445,7 +543,7 @@ export async function runAgentPipeline(roomId: string, actorId?: string) {
     }
   });
 
-  if (refutes >= 2 && confidenceLabel(confidenceScore) === Confidence.HIGH && room.status === RoomStatus.INVESTIGATING) {
+  if (refutes >= 2 && assessment.confidence === Confidence.HIGH && room.status === RoomStatus.INVESTIGATING) {
     await prisma.room.update({
       where: { id: roomId },
       data: {
@@ -460,7 +558,8 @@ export async function runAgentPipeline(roomId: string, actorId?: string) {
       action: "AGENT_SUGGESTED_PENDING_VERDICT",
       payload: {
         refutingSources: refutes,
-        confidence: confidenceLabel(confidenceScore)
+        confidence: assessment.confidence,
+        recommendedVerdict: assessment.verdict
       }
     });
   }
@@ -473,14 +572,16 @@ export async function runAgentPipeline(roomId: string, actorId?: string) {
     payload: {
       evidenceProcessed: savedEvidence.length,
       refutingSources: refutes,
-      confidence: confidenceLabel(confidenceScore)
+      confidence: assessment.confidence,
+      recommendedVerdict: assessment.verdict
     }
   });
 
   return {
     blocked: false,
     evidenceProcessed: savedEvidence.length,
-    confidence: confidenceLabel(confidenceScore)
+    confidence: assessment.confidence,
+    recommendedVerdict: assessment.verdict
   };
 }
 
