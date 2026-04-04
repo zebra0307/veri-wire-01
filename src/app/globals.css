@@ -3,46 +3,133 @@
 @tailwind utilities;
 
 :root {
-  --vv-bg: #0f0e0d;
-  --vv-surface-1: #161513;
-  --vv-surface-2: #1c1a18;
-  --vv-surface-3: #232120;
-  --vv-accent: #2dd4bf;
-  --vv-amber: #f59e0b;
-  --vv-emerald: #10b981;
-  --vv-crimson: #ef4444;
-  --vv-slate: #6b7280;
-  --vv-text: #e5e4e2;
-  --vv-muted: #6b6a68;
-  --vv-border: rgba(255, 255, 255, 0.07);
-  --vv-agent: #6366f1;
+  --vv-bg: #090b0f;
+  --vv-surface-1: #12161d;
+  --vv-surface-2: #1a2029;
+  --vv-surface-3: #232b36;
+  --vv-accent: #24d3ee;
+  --vv-amber: #f9b24a;
+  --vv-emerald: #15c38f;
+  --vv-crimson: #f25b64;
+  --vv-slate: #7a8698;
+  --vv-text: #e9edf2;
+  --vv-muted: #8894a5;
+  --vv-border: rgba(255, 255, 255, 0.08);
+  --vv-agent: #6091ff;
 }
 
 html,
 body {
   min-height: 100%;
-  background: radial-gradient(circle at 12% 0%, rgba(45, 212, 191, 0.08), transparent 30%),
-    radial-gradient(circle at 92% 12%, rgba(99, 102, 241, 0.08), transparent 28%),
-    linear-gradient(155deg, #0f0e0d 0%, #11100f 40%, #0f0e0d 100%);
+  background:
+    radial-gradient(circle at 6% -12%, rgba(36, 211, 238, 0.16), transparent 28%),
+    radial-gradient(circle at 92% 2%, rgba(96, 145, 255, 0.14), transparent 24%),
+    radial-gradient(circle at 42% 118%, rgba(21, 195, 143, 0.08), transparent 24%),
+    linear-gradient(158deg, #090b0f 0%, #0c1016 38%, #090b0f 100%);
   color: var(--vv-text);
 }
 
 body {
-  font-feature-settings: "tnum";
+  font-feature-settings: "tnum", "cv05", "cv11";
+  letter-spacing: 0.01em;
 }
 
 * {
   border-color: var(--vv-border);
 }
 
+.veriwire-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.veriwire-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 82% 12%, rgba(249, 178, 74, 0.06), transparent 28%),
+    radial-gradient(circle at 18% 78%, rgba(36, 211, 238, 0.08), transparent 32%);
+}
+
+.veriwire-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.07;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.35) 0,
+    rgba(255, 255, 255, 0.35) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: soft-light;
+}
+
+.veriwire-topbar {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(150deg, rgba(22, 28, 36, 0.9), rgba(14, 19, 25, 0.9));
+  box-shadow: 0 22px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.veriwire-alert {
+  border-radius: 12px;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(6px);
+}
+
 .status-pill {
-  @apply rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em];
+  @apply rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em];
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .card-shell {
-  @apply border border-white/10 bg-[#161513]/90;
+  @apply rounded-xl border border-white/10;
+  background: linear-gradient(168deg, rgba(24, 30, 39, 0.9), rgba(18, 23, 31, 0.9));
+  box-shadow: 0 22px 36px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px);
 }
 
 .feed-item-active {
-  box-shadow: inset 2px 0 0 var(--vv-accent);
+  box-shadow:
+    inset 3px 0 0 var(--vv-accent),
+    0 0 0 1px rgba(36, 211, 238, 0.26),
+    0 14px 24px rgba(0, 0, 0, 0.32);
+}
+
+.veriwire-shell input,
+.veriwire-shell select,
+.veriwire-shell textarea {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(20, 25, 33, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.veriwire-shell input:focus,
+.veriwire-shell select:focus,
+.veriwire-shell textarea:focus {
+  border-color: rgba(36, 211, 238, 0.7);
+  box-shadow: 0 0 0 3px rgba(36, 211, 238, 0.15);
+  background: rgba(20, 25, 33, 1);
+}
+
+.veriwire-shell button {
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.veriwire-shell button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.veriwire-shell button:disabled {
+  cursor: not-allowed;
 }

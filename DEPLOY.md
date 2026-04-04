@@ -1,27 +1,26 @@
-# VeriWire Deploy Runbook
+# VeriWire Deploy Runbook (No Docker)
 
 ## 1) Prerequisites
 
-- Docker + Docker Compose plugin
-- Open ports: `80`, `443`
-- A configured `.env.production` at repo root
+- Node.js 20+ and pnpm
+- Access to Postgres (Supabase recommended)
+- Optional Redis (if absent, app falls back to in-memory limiter)
+- A configured `.env.production`
 
-Minimum required environment values:
-
+Required values:
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL`
-- `DATABASE_URL` (Supabase Postgres URI from the Supabase dashboard)
+- `DATABASE_URL`
 - `APP_URL`
 - `INTERNAL_AGENT_SECRET`
 
-Apply the Prisma schema to Supabase **before** or **right after** first container start (from your laptop or CI: `pnpm prisma db push` or `pnpm prisma migrate deploy` using the same `DATABASE_URL`). The Docker image no longer runs `db push` or seed on startup.
-
-Optional integrations:
-
+Optional values:
+- `REDIS_URL`
 - `GEMINI_API_KEY`
 - `BRAVE_SEARCH_API_KEY`
 - `ELEVENLABS_API_KEY`
-- `SUPERPLANE_WEBHOOK_URL`, `SUPERPLANE_SECRET`
+- `SUPERPLANE_WEBHOOK_URL`
+- `SUPERPLANE_SECRET`
 
 ## 2) First Deploy
 
@@ -29,67 +28,59 @@ Optional integrations:
 cp .env.production.example .env.production
 # edit .env.production
 
-docker compose --env-file .env.production pull
-
-docker compose --env-file .env.production up -d --build
+pnpm install --frozen-lockfile
+pnpm prisma generate
+pnpm prisma migrate deploy
+pnpm build
 ```
 
-## 3) Health + App Checks
+## 3) Start App
+
+```bash
+pnpm start
+```
+
+For long-running service mode, run with your process manager (systemd/PM2/etc).
+
+## 4) Health + Smoke
 
 ```bash
 curl -sS http://localhost:3000/api/health
-```
-
-Expected: JSON response with `"ok": true`.
-
-Run smoke checks against the running app:
-
-```bash
 pnpm smoke
 ```
 
-If app is not on `localhost:3000`:
+If app is on a different origin:
 
 ```bash
 SMOKE_BASE_URL="https://your-domain" pnpm smoke
 ```
 
-## 4) Demo Mode Seed (Optional)
+## 5) Demo seed (optional)
 
-When demo auth bypass is enabled (`DEMO_BYPASS_AUTH=true`) — **not for production** — seed deterministic demo rooms:
+Only when `DEMO_BYPASS_AUTH=true`:
 
 ```bash
 curl -X POST -sS http://localhost:3000/api/seed
 ```
 
 Expected room IDs:
-
 - `VWRM0001`
 - `VWRM0002`
 - `VWRM0003`
 
-## 5) Update Deploy
+## 6) Update deploy
 
 ```bash
 git pull
-
-docker compose --env-file .env.production up -d --build
+pnpm install --frozen-lockfile
+pnpm prisma migrate deploy
+pnpm build
+# restart process manager service
 ```
 
-## 6) Logs
+## 7) Quick recovery
 
 ```bash
-docker compose logs -f next-app
-
-docker compose logs -f postgres
-
-docker compose logs -f caddy
-```
-
-## 7) Quick Recovery
-
-```bash
-docker compose --env-file .env.production down
-
-docker compose --env-file .env.production up -d --build
+# restart your process manager service
+# or manually stop/start `pnpm start`
 ```

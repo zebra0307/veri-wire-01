@@ -124,7 +124,7 @@ export async function onClaimCreated(roomId: string, actorId: string) {
 
   // Keep this asynchronous to avoid blocking room creation responses.
   setTimeout(() => {
-    runAgentPipeline(roomId, actorId).catch(async (error) => {
+    runAgentPipeline(roomId, actorId, { pinTopProofs: true }).catch(async (error) => {
       await appendAuditLog({
         roomId,
         actorId,

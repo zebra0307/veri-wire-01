@@ -1,0 +1,64 @@
+2026-04-04 23:18:11.213 IST [70970] LOG:  starting PostgreSQL 14.15 (Homebrew) on aarch64-apple-darwin23.6.0, compiled by Apple clang version 16.0.0 (clang-1600.0.26.4), 64-bit
+2026-04-04 23:18:11.226 IST [70970] LOG:  listening on IPv6 address "::1", port 5433
+2026-04-04 23:18:11.226 IST [70970] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-04-04 23:18:11.226 IST [70970] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5433"
+2026-04-04 23:18:11.237 IST [70971] LOG:  database system was shut down at 2026-04-04 23:18:10 IST
+2026-04-04 23:18:11.305 IST [70970] LOG:  database system is ready to accept connections
+2026-04-04 23:27:49.915 IST [70970] LOG:  received fast shutdown request
+2026-04-04 23:27:49.917 IST [70970] LOG:  aborting any active transactions
+2026-04-04 23:27:49.919 IST [70982] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.919 IST [71002] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.920 IST [70984] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.920 IST [70985] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.920 IST [73620] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.920 IST [70986] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.920 IST [70983] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.920 IST [73626] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.920 IST [73622] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.920 IST [73623] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.921 IST [73625] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.921 IST [73621] FATAL:  terminating connection due to administrator command
+2026-04-04 23:27:49.927 IST [70970] LOG:  background worker "logical replication launcher" (PID 70979) exited with exit code 1
+2026-04-04 23:27:49.932 IST [70974] LOG:  shutting down
+2026-04-04 23:27:49.967 IST [70970] LOG:  database system is shut down
+2026-04-04 23:27:50.091 IST [75451] LOG:  starting PostgreSQL 14.15 (Homebrew) on aarch64-apple-darwin23.6.0, compiled by Apple clang version 16.0.0 (clang-1600.0.26.4), 64-bit
+2026-04-04 23:27:50.103 IST [75451] LOG:  listening on IPv6 address "::1", port 5433
+2026-04-04 23:27:50.103 IST [75451] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-04-04 23:27:50.104 IST [75451] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5433"
+2026-04-04 23:27:50.108 IST [75452] LOG:  database system was shut down at 2026-04-04 23:27:49 IST
+2026-04-04 23:27:50.118 IST [75451] LOG:  database system is ready to accept connections
+2026-04-04 23:38:53.723 IST [82979] ERROR:  insert or update on table "AuditLog" violates foreign key constraint "AuditLog_actorId_fkey"
+2026-04-04 23:38:53.723 IST [82979] DETAIL:  Key (actorId)=(demo-trigger) is not present in table "User".
+2026-04-04 23:38:53.723 IST [82979] STATEMENT:  INSERT INTO "public"."AuditLog" ("id","roomId","actorId","actorType","action","payload","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING "public"."AuditLog"."id", "public"."AuditLog"."roomId", "public"."AuditLog"."actorId", "public"."AuditLog"."actorType", "public"."AuditLog"."action", "public"."AuditLog"."payload", "public"."AuditLog"."createdAt"
+2026-04-04 23:39:08.978 IST [82985] ERROR:  insert or update on table "AuditLog" violates foreign key constraint "AuditLog_actorId_fkey"
+2026-04-04 23:39:08.978 IST [82985] DETAIL:  Key (actorId)=(demo-trigger) is not present in table "User".
+2026-04-04 23:39:08.978 IST [82985] STATEMENT:  INSERT INTO "public"."AuditLog" ("id","roomId","actorId","actorType","action","payload","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING "public"."AuditLog"."id", "public"."AuditLog"."roomId", "public"."AuditLog"."actorId", "public"."AuditLog"."actorType", "public"."AuditLog"."action", "public"."AuditLog"."payload", "public"."AuditLog"."createdAt"
+2026-04-04 23:42:47.420 IST [75451] LOG:  received fast shutdown request
+2026-04-04 23:42:47.421 IST [75451] LOG:  aborting any active transactions
+2026-04-04 23:42:47.422 IST [82984] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [82972] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [82980] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [75481] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [82982] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [83066] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [83067] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [82983] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [82979] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.423 IST [75480] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [83065] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [82985] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.423 IST [75479] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [75484] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [82978] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [82981] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [75483] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.422 IST [75482] FATAL:  terminating connection due to administrator command
+2026-04-04 23:42:47.429 IST [75451] LOG:  background worker "logical replication launcher" (PID 75458) exited with exit code 1
+2026-04-04 23:42:47.429 IST [75453] LOG:  shutting down
+2026-04-04 23:42:47.442 IST [75451] LOG:  database system is shut down
+2026-04-04 23:42:47.566 IST [87815] LOG:  starting PostgreSQL 14.15 (Homebrew) on aarch64-apple-darwin23.6.0, compiled by Apple clang version 16.0.0 (clang-1600.0.26.4), 64-bit
+2026-04-04 23:42:47.569 IST [87815] LOG:  listening on IPv6 address "::1", port 5433
+2026-04-04 23:42:47.569 IST [87815] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-04-04 23:42:47.570 IST [87815] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5433"
+2026-04-04 23:42:47.575 IST [87816] LOG:  database system was shut down at 2026-04-04 23:42:47 IST
+2026-04-04 23:42:47.584 IST [87815] LOG:  database system is ready to accept connections

@@ -77,11 +77,18 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser();
 
-    await enforceRateLimit({
-      key: `claims:${user.id}`,
-      limit: 5,
-      windowSeconds: 3600
-    });
+    const skipClaimRateLimit =
+      env.DEMO_BYPASS_AUTH &&
+      typeof user.email === "string" &&
+      user.email.endsWith("@veriwire.demo");
+
+    if (!skipClaimRateLimit) {
+      await enforceRateLimit({
+        key: `claims:${user.id}`,
+        limit: 5,
+        windowSeconds: 3600
+      });
+    }
 
     const body = await request.json();
     const parsed = claimSubmissionSchema.safeParse(body);

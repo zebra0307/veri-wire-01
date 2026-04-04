@@ -1,0 +1,46 @@
+2026-04-04 22:45:46.442 IST [45256] LOG:  starting PostgreSQL 14.15 (Homebrew) on aarch64-apple-darwin23.6.0, compiled by Apple clang version 16.0.0 (clang-1600.0.26.4), 64-bit
+2026-04-04 22:45:46.446 IST [45256] LOG:  listening on IPv6 address "::1", port 5433
+2026-04-04 22:45:46.446 IST [45256] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-04-04 22:45:46.446 IST [45256] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5433"
+2026-04-04 22:45:46.448 IST [45257] LOG:  database system was shut down at 2026-04-04 22:45:45 IST
+2026-04-04 22:45:46.449 IST [45256] LOG:  database system is ready to accept connections
+2026-04-04 22:45:47.787 IST [45586] ERROR:  syntax error at or near "37698" at character 4
+2026-04-04 22:45:47.787 IST [45586] STATEMENT:  DO 37698 BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='veriwire') THEN CREATE ROLE veriwire LOGIN PASSWORD 'strongpassword'; ELSE ALTER ROLE veriwire LOGIN PASSWORD 'strongpassword'; END IF; END 37698;
+2026-04-04 22:46:39.135 IST [48549] ERROR:  role "veriwire" does not exist
+2026-04-04 22:46:39.135 IST [48549] STATEMENT:  ALTER ROLE veriwire WITH LOGIN PASSWORD 'strongpassword';
+2026-04-04 23:10:30.030 IST [45256] LOG:  received fast shutdown request
+2026-04-04 23:10:30.031 IST [45256] LOG:  aborting any active transactions
+2026-04-04 23:10:30.032 IST [50685] FATAL:  terminating connection due to administrator command
+2026-04-04 23:10:30.032 IST [50684] FATAL:  terminating connection due to administrator command
+2026-04-04 23:10:30.032 IST [50682] FATAL:  terminating connection due to administrator command
+2026-04-04 23:10:30.032 IST [50683] FATAL:  terminating connection due to administrator command
+2026-04-04 23:10:30.032 IST [50658] FATAL:  terminating connection due to administrator command
+2026-04-04 23:10:30.032 IST [50681] FATAL:  terminating connection due to administrator command
+2026-04-04 23:10:30.032 IST [54684] FATAL:  terminating connection due to administrator command
+2026-04-04 23:10:30.036 IST [45256] LOG:  background worker "logical replication launcher" (PID 45263) exited with exit code 1
+2026-04-04 23:10:30.037 IST [45258] LOG:  shutting down
+2026-04-04 23:10:30.053 IST [45256] LOG:  database system is shut down
+2026-04-04 23:10:30.170 IST [65910] LOG:  starting PostgreSQL 14.15 (Homebrew) on aarch64-apple-darwin23.6.0, compiled by Apple clang version 16.0.0 (clang-1600.0.26.4), 64-bit
+2026-04-04 23:10:30.172 IST [65910] LOG:  listening on IPv6 address "::1", port 5433
+2026-04-04 23:10:30.172 IST [65910] LOG:  listening on IPv4 address "127.0.0.1", port 5433
+2026-04-04 23:10:30.172 IST [65910] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5433"
+2026-04-04 23:10:30.174 IST [65911] LOG:  database system was shut down at 2026-04-04 23:10:30 IST
+2026-04-04 23:10:30.178 IST [65910] LOG:  database system is ready to accept connections
+2026-04-04 23:18:10.942 IST [65910] LOG:  received fast shutdown request
+2026-04-04 23:18:10.943 IST [65910] LOG:  aborting any active transactions
+2026-04-04 23:18:10.946 IST [68655] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [66118] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [67117] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [66124] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [68656] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [66122] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [67134] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [68933] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [67118] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [66121] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [68657] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [66123] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.946 IST [66120] FATAL:  terminating connection due to administrator command
+2026-04-04 23:18:10.954 IST [65910] LOG:  background worker "logical replication launcher" (PID 65917) exited with exit code 1
+2026-04-04 23:18:10.955 IST [65912] LOG:  shutting down
+2026-04-04 23:18:10.982 IST [65910] LOG:  database system is shut down

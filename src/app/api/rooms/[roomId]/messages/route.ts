@@ -1,5 +1,6 @@
-import { RoomMessageKind, RoomRole } from "@prisma/client";
+import { GlobalRole, RoomMessageKind, RoomRole } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { generateAgentChatResponse } from "@/lib/agent";
 import { getSessionUser } from "@/lib/auth";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -121,7 +122,100 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       createdAt: message.createdAt.toISOString()
     });
 
-    return NextResponse.json({ message });
+    const shouldInvokeAgent =
+      kind === RoomMessageKind.CHAT && /(^|\s)@agent\b|(^|\s)\/agent\b/i.test(body);
+
+    const agentPrompt = body.replace(/(^|\s)@agent\b/gi, " ").replace(/(^|\s)\/agent\b/gi, " ").trim();
+
+    let agentReply: Awaited<ReturnType<typeof prisma.roomMessage.create>> | null = null;
+    const agentProofReplies: Array<Awaited<ReturnType<typeof prisma.roomMessage.create>>> = [];
+
+    if (shouldInvokeAgent) {
+      const agentUser = await prisma.user.upsert({
+        where: { email: "agent@veriwire.system" },
+        update: {
+          name: "VeriAgent",
+          role: GlobalRole.MODERATOR,
+          contributorScore: 2.0
+        },
+        create: {
+          email: "agent@veriwire.system",
+          name: "VeriAgent",
+          role: GlobalRole.MODERATOR,
+          contributorScore: 2.0
+        }
+      });
+
+      let agentText: string;
+      let proofNotes: Array<{ evidenceId: string; body: string }> = [];
+
+      try {
+        const result = await generateAgentChatResponse(params.roomId, agentPrompt, user.id);
+        agentText = result.replyText;
+        proofNotes = result.proofNotes;
+      } catch (agentError) {
+        if (agentError instanceof RateLimitError) {
+          agentText = "Agent is cooling down for this room. Please try again in a few minutes.";
+        } else {
+          agentText = "I could not complete that agent request right now. Try again shortly.";
+        }
+      }
+
+      agentReply = await prisma.roomMessage.create({
+        data: {
+          roomId: params.roomId,
+          userId: agentUser.id,
+          body: sanitizeChatBody(agentText),
+          kind: RoomMessageKind.CHAT
+        },
+        include: roomMessageInclude
+      });
+
+      await publishSpacetimeEvent({
+        roomId: params.roomId,
+        event: "room.message.created",
+        data: {
+          id: agentReply.id,
+          userId: agentReply.userId,
+          kind: agentReply.kind,
+          evidenceId: agentReply.evidenceId,
+          bodyPreview: agentReply.body.slice(0, 280),
+          createdAt: agentReply.createdAt.toISOString()
+        },
+        createdAt: agentReply.createdAt.toISOString()
+      });
+
+      for (const note of proofNotes) {
+        const proofReply = await prisma.roomMessage.create({
+          data: {
+            roomId: params.roomId,
+            userId: agentUser.id,
+            body: note.body,
+            kind: RoomMessageKind.PROOF_NOTE,
+            evidenceId: note.evidenceId
+          },
+          include: roomMessageInclude
+        });
+
+        agentProofReplies.push(proofReply);
+
+        await publishSpacetimeEvent({
+          roomId: params.roomId,
+          event: "room.message.created",
+          data: {
+            id: proofReply.id,
+            userId: proofReply.userId,
+            kind: proofReply.kind,
+            evidenceId: proofReply.evidenceId,
+            bodyPreview: proofReply.body.slice(0, 280),
+            createdAt: proofReply.createdAt.toISOString()
+          },
+          createdAt: proofReply.createdAt.toISOString()
+        });
+      }
+    }
+
+    return NextResponse.json({ message, agentReply, agentProofReplies });
   } catch (error) {
     if (error instanceof RateLimitError) {
       return jsonError(429, { error: error.message });

@@ -28,12 +28,6 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       return jsonError(400, { error: "Voting is only available in PENDING_VERDICT state" });
     }
 
-    await enforceRateLimit({
-      key: `vote:${params.roomId}:${user.id}`,
-      limit: 1,
-      windowSeconds: 24 * 3600
-    });
-
     const body = await request.json();
     const parsed = voteSchema.safeParse(body);
 
@@ -53,6 +47,12 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     if (existing) {
       return jsonError(409, { error: "Vote already submitted and cannot be changed" });
     }
+
+    await enforceRateLimit({
+      key: `vote-submit:${params.roomId}:${user.id}`,
+      limit: 5,
+      windowSeconds: 60
+    });
 
     const voter = await prisma.user.findUnique({ where: { id: user.id } });
     const weight = voter?.contributorScore ?? 1;

@@ -230,31 +230,31 @@ async function readJson<T>(url: string, init?: RequestInit) {
 
 function DemoLayoutSkeleton() {
   return (
-    <div className="mx-auto grid max-w-[1460px] grid-cols-1 gap-3 md:grid-cols-[240px_1fr_300px] animate-rise">
-      <aside className="card-shell hidden overflow-hidden md:block">
-        <div className="h-10 border-b border-white/10 bg-white/[0.02]" />
-        <div className="space-y-2 p-3">
+    <div className="mx-auto grid max-w-[1460px] grid-cols-1 gap-4 md:grid-cols-[280px_1fr_360px] animate-rise">
+      <aside className="card-shell hidden overflow-hidden p-3 md:block">
+        <div className="h-12 rounded-lg border border-white/10 bg-white/[0.02]" />
+        <div className="mt-3 space-y-2">
           {Array.from({ length: 8 }).map((_, index) => (
-            <div key={`feed-skeleton-${index}`} className="h-14 animate-pulse bg-white/[0.04]" />
+            <div key={`feed-skeleton-${index}`} className="h-16 animate-pulse rounded-lg border border-white/10 bg-white/[0.04]" />
           ))}
         </div>
       </aside>
 
-      <section className="card-shell min-h-[72vh] p-3">
-        <div className="h-24 animate-pulse bg-white/[0.05]" />
-        <div className="mt-3 h-10 animate-pulse bg-white/[0.04]" />
+      <section className="card-shell min-h-[72vh] p-4">
+        <div className="h-24 animate-pulse rounded-lg border border-white/10 bg-white/[0.05]" />
+        <div className="mt-3 h-10 animate-pulse rounded-lg border border-white/10 bg-white/[0.04]" />
         <div className="mt-3 space-y-3">
           {Array.from({ length: 6 }).map((_, index) => (
-            <div key={`thread-skeleton-${index}`} className="h-20 animate-pulse bg-white/[0.04]" />
+            <div key={`thread-skeleton-${index}`} className="h-20 animate-pulse rounded-lg border border-white/10 bg-white/[0.04]" />
           ))}
         </div>
-        <div className="mt-3 h-16 animate-pulse bg-white/[0.04]" />
+        <div className="mt-3 h-16 animate-pulse rounded-lg border border-white/10 bg-white/[0.04]" />
       </section>
 
       <aside className="card-shell hidden p-3 md:block">
-        <div className="h-24 animate-pulse bg-white/[0.05]" />
-        <div className="mt-3 h-36 animate-pulse bg-white/[0.04]" />
-        <div className="mt-3 h-52 animate-pulse bg-white/[0.04]" />
+        <div className="h-24 animate-pulse rounded-lg border border-white/10 bg-white/[0.05]" />
+        <div className="mt-3 h-36 animate-pulse rounded-lg border border-white/10 bg-white/[0.04]" />
+        <div className="mt-3 h-52 animate-pulse rounded-lg border border-white/10 bg-white/[0.04]" />
       </aside>
     </div>
   );
@@ -737,7 +737,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
 
   if (!bootstrapping && authRequired) {
     return (
-      <main className="min-h-screen p-6 md:p-10">
+      <main className="veriwire-shell min-h-screen p-6 md:p-10">
         <div className="mx-auto max-w-md border border-white/10 bg-vv-surface1/90 p-6 text-vv-text">
           <p className="font-mono text-xs uppercase tracking-[0.28em] text-vv-accent">VeriWire</p>
           <h1 className="mt-3 text-xl font-semibold">Sign in required</h1>
@@ -757,8 +757,8 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
 
   if (bootstrapping) {
     return (
-      <main className="min-h-screen p-3 md:p-5">
-        <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-white/10 bg-vv-surface1/90 px-4 py-3 animate-rise">
+      <main className="veriwire-shell min-h-screen p-3 md:p-5">
+        <div className="veriwire-topbar mx-auto mb-4 flex max-w-[1460px] items-center justify-between px-4 py-3 animate-rise md:px-5">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.28em] text-vv-accent">VeriWire</p>
             <p className="text-sm text-vv-muted">Collaborative misinformation resolution rooms</p>
@@ -779,7 +779,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         </div>
 
         {demoMode && observerReadOnly && showDemoBanner ? (
-          <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-vv-amber/50 bg-vv-amber/10 px-4 py-2 text-sm text-vv-amber">
+          <div className="veriwire-alert mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-vv-amber/50 bg-vv-amber/10 px-4 py-2 text-sm text-vv-amber">
             <p>Demo observer mode is read-only. Sign in to submit evidence, vote, or close rooms.</p>
             <button
               onClick={() => setShowDemoBanner(false)}
@@ -796,8 +796,8 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
   }
 
   return (
-    <main className="min-h-screen p-3 md:p-5">
-      <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-white/10 bg-vv-surface1/90 px-4 py-3 animate-rise">
+    <main className="veriwire-shell min-h-screen p-3 md:p-5">
+      <div className="veriwire-topbar mx-auto mb-4 flex max-w-[1460px] items-center justify-between px-4 py-3 animate-rise md:px-5">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.28em] text-vv-accent">VeriWire</p>
           <p className="text-sm text-vv-muted">Collaborative misinformation resolution rooms</p>
@@ -818,7 +818,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
       </div>
 
       {demoMode && observerReadOnly && showDemoBanner ? (
-        <div className="mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-vv-amber/50 bg-vv-amber/10 px-4 py-2 text-sm text-vv-amber">
+        <div className="veriwire-alert mx-auto mb-3 flex max-w-[1460px] items-center justify-between border border-vv-amber/50 bg-vv-amber/10 px-4 py-2 text-sm text-vv-amber">
           <p>Demo observer mode is read-only. Sign in to submit evidence, vote, or close rooms.</p>
           <button
             onClick={() => setShowDemoBanner(false)}
@@ -829,24 +829,27 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         </div>
       ) : null}
 
-      <div className="mx-auto grid max-w-[1460px] grid-cols-1 gap-3 md:grid-cols-[240px_1fr_300px] animate-rise">
-        <aside className={cn("card-shell hidden overflow-hidden md:block")}> 
-          <div className="border-b border-white/10 px-3 py-2 font-mono text-xs uppercase tracking-[0.16em] text-vv-muted">Rumour Feed</div>
-          <div className="max-h-[calc(100vh-210px)] overflow-y-auto">
+      <div className="mx-auto grid max-w-[1460px] grid-cols-1 gap-4 md:grid-cols-[280px_1fr_360px] animate-rise">
+        <aside className={cn("card-shell hidden overflow-hidden p-2 md:block")}> 
+          <div className="rounded-lg border border-white/10 bg-vv-surface2/70 px-3 py-3">
+            <p className="font-mono text-xs uppercase tracking-[0.18em] text-vv-muted">Rumour Feed</p>
+            <p className="mt-1 text-xs text-vv-muted/80">{rooms.length} active case files</p>
+          </div>
+          <div className="mt-2 max-h-[calc(100vh-222px)] overflow-y-auto pr-1">
             {rooms.map((room) => (
               <button
                 key={room.id}
                 onClick={() => setActiveRoomId(room.id)}
                 className={cn(
-                  "w-full border-b border-white/5 px-3 py-3 text-left transition hover:bg-white/[0.03]",
-                  activeRoomId === room.id && "feed-item-active bg-white/[0.02]"
+                  "group mb-2 w-full rounded-lg border border-white/10 bg-vv-surface2/70 px-3 py-3 text-left transition hover:border-vv-accent/35 hover:bg-vv-surface3/70",
+                  activeRoomId === room.id && "feed-item-active border-vv-accent/45 bg-vv-surface3/80"
                 )}
               >
                 <div className="mb-2 flex items-center justify-between">
                   <span className="font-mono text-[11px] tracking-[0.12em] text-vv-muted">{room.id}</span>
                   <span className={cn("status-pill", statusClassMap[room.status])}>{room.status}</span>
                 </div>
-                <p className="line-clamp-1 text-xs text-vv-text">{room.claimRaw}</p>
+                <p className="line-clamp-2 text-xs text-vv-text group-hover:text-white">{room.claimRaw}</p>
                 <div className="mt-2 flex items-center justify-between">
                   <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
                     <div className="h-full bg-vv-accent animate-pulseBar" style={{ width: `${Math.min(100, room.heatScore * 100)}%` }} />
@@ -861,20 +864,35 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         <section className="card-shell min-h-[72vh] overflow-hidden">
           {activeRoom ? (
             <>
-              <div className={cn("border-l-4 bg-vv-surface2 px-4 py-4", statusTint(activeRoom))}>
+              <div className={cn("border-l-4 bg-vv-surface2/95 px-4 py-4 md:px-5 md:py-5", statusTint(activeRoom))}>
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="font-mono text-xs uppercase tracking-[0.2em] text-vv-amber">Claim Docket</p>
+                  <p className="font-mono text-xs uppercase tracking-[0.24em] text-vv-amber">Claim Docket</p>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-vv-muted">{activeRoom.id}</span>
+                    <span className="rounded-md border border-white/15 bg-vv-surface3/80 px-2 py-1 font-mono text-xs text-vv-muted">
+                      {activeRoom.id}
+                    </span>
                     <span className={cn("status-pill", statusClassMap[activeRoom.status])}>{activeRoom.status}</span>
                   </div>
                 </div>
-                <p className="font-mono text-lg font-semibold leading-tight text-vv-text">{activeRoom.claimRaw}</p>
+                <p className="font-mono text-lg font-semibold leading-tight text-vv-text md:text-xl">{activeRoom.claimRaw}</p>
                 <p className="mt-2 text-xs text-vv-muted">Immutable claim record</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="status-pill border-vv-accent/45 text-vv-accent">
+                    Heat {Math.round(activeRoom.heatScore * 100)}%
+                  </span>
+                  <span className="status-pill border-vv-slate/40 text-vv-muted">
+                    Resurfaced {activeRoom.recurrenceCount}x
+                  </span>
+                  {activeRoom.tags.slice(0, 2).map((tag) => (
+                    <span key={tag} className="status-pill border-white/20 text-vv-muted">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
               </div>
 
               {recurrenceBanner ? (
-                <div className="border-y border-vv-amber/45 bg-vv-amber/10 px-4 py-2 text-xs text-vv-amber">
+                <div className="border-y border-vv-amber/45 bg-vv-amber/10 px-4 py-2 text-xs text-vv-amber md:px-5">
                   This claim was {recurrenceBanner.originalVerdict?.toLowerCase() ?? "reviewed"} {recurrenceBanner.daysAgo} days ago.
                   It resurfaced {recurrenceBanner.resurfacedCount} times.
                   <a
@@ -891,12 +909,12 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
               ) : null}
 
               {activeRoom.status === "CLOSED" ? (
-                <div className="border-b border-white/10 bg-vv-surface3/70 px-4 py-2 text-sm text-vv-muted">
+                <div className="border-b border-white/10 bg-vv-surface3/70 px-4 py-2 text-sm text-vv-muted md:px-5">
                   This room is closed. Verdict: {activeRoom.verdict ?? "UNCLEAR"}.
                 </div>
               ) : null}
 
-              <div className="max-h-[50vh] space-y-3 overflow-y-auto px-3 py-3">
+              <div className="max-h-[50vh] space-y-3 overflow-y-auto bg-vv-surface1/30 px-3 py-3 md:px-4">
                 {activeRoom.evidence.map((item) => {
                   const isAgent = item.submittedBy === "AGENT";
                   const disputed = item.disputedBy.length >= 2;
@@ -905,7 +923,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                     <article
                       key={item.id}
                       className={cn(
-                        "border border-white/10 bg-vv-surface2 p-3",
+                        "rounded-lg border border-white/10 bg-vv-surface2/95 p-3 shadow-[0_12px_22px_rgba(0,0,0,0.25)]",
                         isAgent && "border-l-2 border-l-vv-agent shadow-agent",
                         disputed && "opacity-60"
                       )}
@@ -921,7 +939,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                           <button
                             onClick={() => disputeAgentEvidence(item.id)}
                             disabled={busy || observerReadOnly}
-                            className="status-pill border-vv-amber/50 text-vv-amber hover:bg-vv-amber/10 disabled:opacity-40"
+                              className="status-pill border-vv-amber/50 text-vv-amber hover:bg-vv-amber/10 disabled:opacity-40"
                           >
                             Dispute ({item.disputedBy.length})
                           </button>
@@ -933,18 +951,21 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                 })}
               </div>
 
-              <div className="border-t border-white/10 bg-vv-surface3/40 px-3 py-3">
+              <div className="border-t border-white/10 bg-vv-surface3/40 px-3 py-3 md:px-4">
                 <p className="mb-2 font-mono text-xs uppercase tracking-[0.16em] text-vv-muted">Rumour room (live)</p>
                 <p className="mb-2 text-[11px] text-vv-muted">
-                  Discuss the claim and tie notes to a proof. Updates sync over the room stream; optional SpacetimeDB bridge
-                  receives <span className="font-mono">room.message.created</span> for external realtime fan-out.
+                  Discuss the claim and tie notes to a proof. Mention <span className="font-mono">@agent</span> or start with
+                  <span className="font-mono"> /agent</span> to ask for the agent&apos;s opinion and proof-backed response in this
+                  thread. Include words like <span className="font-mono">show proofs</span> or <span className="font-mono">cite sources</span> to
+                  get linked proof notes. Updates sync over the room stream; optional SpacetimeDB bridge receives
+                  <span className="font-mono"> room.message.created</span> for external realtime fan-out.
                 </p>
-                <div className="mb-2 max-h-36 space-y-2 overflow-y-auto rounded border border-white/10 bg-vv-surface2/80 p-2">
+                <div className="mb-2 max-h-36 space-y-2 overflow-y-auto rounded-lg border border-white/10 bg-vv-surface2/80 p-2">
                   {(activeRoom.messages ?? []).length === 0 ? (
                     <p className="text-xs text-vv-muted">No messages yet.</p>
                   ) : (
                     (activeRoom.messages ?? []).map((msg) => (
-                      <div key={msg.id} className="border-b border-white/5 pb-2 text-xs last:border-0 last:pb-0">
+                      <div key={msg.id} className="rounded-md border border-white/10 bg-vv-surface3/50 p-2 text-xs">
                         <div className="flex flex-wrap items-center gap-2 text-[10px] text-vv-muted">
                           <span className="font-mono">{msg.user.name ?? msg.user.id.slice(0, 8)}</span>
                           <span>{formatAgo(msg.createdAt)}</span>
@@ -995,14 +1016,14 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                     type="button"
                     onClick={() => void submitRoomMessage()}
                     disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly || !chatDraft.trim()}
-                    className="border border-vv-accent/70 bg-vv-accent/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-vv-accent disabled:opacity-40"
+                    className="border border-vv-accent/70 bg-vv-accent/15 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-vv-accent shadow-[0_8px_18px_rgba(36,211,238,0.18)] disabled:opacity-40"
                   >
                     Send
                   </button>
                 </div>
               </div>
 
-              <div className="border-t border-white/10 bg-vv-surface1 p-3">
+              <div className="border-t border-white/10 bg-vv-surface1/90 p-3 md:px-4 md:py-4">
                 <p className="mb-2 text-xs uppercase tracking-[0.14em] text-vv-muted">Submit Evidence</p>
                 <div className="grid gap-2 md:grid-cols-[1fr_160px_120px]">
                   <input
@@ -1025,7 +1046,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                   <button
                     onClick={submitEvidence}
                     disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
-                    className="border border-vv-accent/70 bg-vv-accent/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-vv-accent transition hover:bg-vv-accent/20 disabled:opacity-40"
+                    className="border border-vv-accent/70 bg-vv-accent/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-vv-accent shadow-[0_8px_18px_rgba(36,211,238,0.16)] transition hover:bg-vv-accent/25 disabled:opacity-40"
                   >
                     Add Source
                   </button>
@@ -1037,13 +1058,13 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
           )}
         </section>
 
-        <aside className="card-shell hidden flex-col md:flex">
-          <div className="border-b border-white/10 p-3">
+        <aside className="card-shell hidden flex-col overflow-hidden md:flex">
+          <div className="border-b border-white/10 bg-vv-surface2/75 p-3">
             <p className="font-mono text-xs uppercase tracking-[0.16em] text-vv-muted">Intelligence Panel</p>
           </div>
 
           <div className="space-y-3 p-3">
-            <section className="border border-white/10 bg-vv-surface2 p-3">
+            <section className="rounded-lg border border-white/10 bg-vv-surface2/95 p-3 shadow-[0_14px_24px_rgba(0,0,0,0.25)]">
               <p className="mb-2 text-xs uppercase tracking-[0.16em] text-vv-muted">Agent Status</p>
               {latestAgentEvent ? (
                 <>
@@ -1058,11 +1079,11 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
               )}
             </section>
 
-            <section className="border border-white/10 bg-vv-surface2 p-3">
+            <section className="rounded-lg border border-white/10 bg-vv-surface2/95 p-3 shadow-[0_14px_24px_rgba(0,0,0,0.25)]">
               <p className="mb-3 text-xs uppercase tracking-[0.16em] text-vv-muted">Weighted Poll</p>
               <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
                 {(["TRUE", "FALSE", "UNCLEAR"] as const).map((verdict) => (
-                  <div key={verdict} className="border border-white/10 bg-vv-surface3 px-2 py-2">
+                  <div key={verdict} className="rounded-md border border-white/10 bg-vv-surface3 px-2 py-2">
                     <p className="font-mono text-[10px] text-vv-muted">{verdict}</p>
                     <p className="mt-1 text-sm text-vv-text">{weighted?.percentages[verdict] ?? 0}%</p>
                   </div>
@@ -1102,14 +1123,14 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                 <button
                   onClick={castVote}
                   disabled={activeRoom?.status !== "PENDING_VERDICT" || busy || observerReadOnly}
-                  className="border border-vv-accent/70 bg-vv-accent/10 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-vv-accent disabled:opacity-40"
+                  className="border border-vv-accent/70 bg-vv-accent/15 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-vv-accent shadow-[0_8px_18px_rgba(36,211,238,0.16)] disabled:opacity-40"
                 >
                   Vote
                 </button>
               </div>
             </section>
 
-            <section className="border border-white/10 bg-vv-surface2 p-3">
+            <section className="rounded-lg border border-white/10 bg-vv-surface2/95 p-3 shadow-[0_14px_24px_rgba(0,0,0,0.25)]">
               <button
                 onClick={generateCard}
                 disabled={!activeRoom || activeRoom.status !== "CLOSED" || busy || observerReadOnly}
@@ -1139,14 +1160,14 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         </aside>
       </div>
 
-      <div className="mx-auto mt-3 max-w-[1460px] rounded border border-white/10 bg-vv-surface1 p-3 md:hidden">
+      <div className="card-shell mx-auto mt-3 max-w-[1460px] p-3 md:hidden">
         <div className="mb-2 grid grid-cols-5 gap-1">
           {(["FEED", "ROOM", "CHAT", "AGENT", "CARD"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setMobileTab(tab)}
               className={cn(
-                "border px-2 py-2 text-[11px] font-mono uppercase tracking-[0.12em]",
+                "rounded-md border px-2 py-2 text-[11px] font-mono uppercase tracking-[0.12em]",
                 mobileTab === tab ? "border-vv-accent text-vv-accent" : "border-white/10 text-vv-muted"
               )}
             >
@@ -1164,7 +1185,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
                   setActiveRoomId(room.id);
                   setMobileTab("ROOM");
                 }}
-                className="w-full border border-white/10 px-3 py-2 text-left"
+                className="w-full rounded-md border border-white/10 bg-vv-surface2/80 px-3 py-2 text-left"
               >
                 <p className="font-mono text-[11px] text-vv-muted">{room.id}</p>
                 <p className="line-clamp-1 text-sm text-vv-text">{room.claimRaw}</p>
@@ -1183,7 +1204,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         {mobileTab === "CHAT" && activeRoom ? (
           <div className="max-h-[50vh] space-y-2 overflow-y-auto text-sm">
             {(activeRoom.messages ?? []).map((msg) => (
-              <div key={msg.id} className="border border-white/10 p-2 text-xs">
+              <div key={msg.id} className="rounded-md border border-white/10 bg-vv-surface2/75 p-2 text-xs">
                 <p className="font-mono text-[10px] text-vv-muted">
                   {msg.user.name ?? msg.user.id.slice(0, 8)} · {formatAgo(msg.createdAt)}
                   {msg.kind === "PROOF_NOTE" ? " · proof" : ""}
@@ -1210,7 +1231,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
               maxLength={2000}
               rows={2}
               className="w-full border border-white/10 bg-vv-surface2 p-2 text-sm"
-              placeholder="Message…"
+              placeholder="Message… (try: @agent what's your opinion? show proofs)"
               disabled={activeRoom.status === "CLOSED" || busy || observerReadOnly}
             />
             <button
@@ -1236,7 +1257,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
       {observerNotice ? <p className="mx-auto mt-3 max-w-[1460px] text-sm text-vv-amber">{observerNotice}</p> : null}
 
       <div className="mx-auto mt-3 flex max-w-[1460px] gap-2">
-        <div className="grid w-full gap-2 md:grid-cols-3">
+        <div className="grid w-full gap-2 rounded-xl border border-white/10 bg-vv-surface1/80 p-2 md:grid-cols-3 md:p-3">
           <input
             value={claimText}
             onChange={(event) => setClaimText(event.target.value)}
@@ -1263,7 +1284,7 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
         <button
           onClick={submitClaim}
           disabled={busy || observerReadOnly || (!claimText.trim() && !claimUrl.trim() && !claimImage)}
-          className="border border-vv-accent/70 bg-vv-accent/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-vv-accent disabled:opacity-40"
+          className="rounded-lg border border-vv-accent/70 bg-vv-accent/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-vv-accent shadow-[0_10px_22px_rgba(36,211,238,0.18)] disabled:opacity-40"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Room"}
         </button>
@@ -1274,21 +1295,21 @@ export function VeriWireApp({ initialRoomId }: { initialRoomId: string | null })
           <button
             onClick={() => setStatus("INVESTIGATING")}
             disabled={busy || observerReadOnly || activeRoom.status !== "OPEN"}
-            className="border border-vv-amber/50 px-3 py-1.5 text-xs text-vv-amber disabled:opacity-40"
+            className="rounded-md border border-vv-amber/50 bg-vv-amber/10 px-3 py-1.5 text-xs text-vv-amber disabled:opacity-40"
           >
             Set Investigating
           </button>
           <button
             onClick={() => setStatus("PENDING_VERDICT")}
             disabled={busy || observerReadOnly || activeRoom.status !== "INVESTIGATING"}
-            className="border border-vv-accent/50 px-3 py-1.5 text-xs text-vv-accent disabled:opacity-40"
+            className="rounded-md border border-vv-accent/50 bg-vv-accent/10 px-3 py-1.5 text-xs text-vv-accent disabled:opacity-40"
           >
             Open Poll
           </button>
           <button
             onClick={() => setStatus("CLOSED")}
             disabled={busy || observerReadOnly || activeRoom.status !== "PENDING_VERDICT"}
-            className="border border-vv-emerald/50 px-3 py-1.5 text-xs text-vv-emerald disabled:opacity-40"
+            className="rounded-md border border-vv-emerald/50 bg-vv-emerald/10 px-3 py-1.5 text-xs text-vv-emerald disabled:opacity-40"
           >
             Close Room
           </button>
