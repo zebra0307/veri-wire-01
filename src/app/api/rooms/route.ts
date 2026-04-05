@@ -61,12 +61,10 @@ export async function GET(request: NextRequest) {
       take: 60
     });
 
-    const observerReadOnly = env.DEMO_BYPASS_AUTH && user.email === "observer@veriwire.demo";
-
     return NextResponse.json({
       rooms,
       demoMode: env.DEMO_BYPASS_AUTH,
-      viewerRole: observerReadOnly ? "OBSERVER" : "CONTRIBUTOR"
+      viewerRole: "CONTRIBUTOR"
     });
   } catch (error) {
     return handleRouteError(error);

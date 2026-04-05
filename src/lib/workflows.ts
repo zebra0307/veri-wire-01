@@ -122,20 +122,18 @@ export async function onClaimCreated(roomId: string, actorId: string) {
     }
   });
 
-  // Keep this asynchronous to avoid blocking room creation responses.
-  setTimeout(() => {
-    runAgentPipeline(roomId, actorId, { pinTopProofs: true }).catch(async (error) => {
-      await appendAuditLog({
-        roomId,
-        actorId,
-        actorType: "SYSTEM",
-        action: "AGENT_RUN_FAILED",
-        payload: {
-          message: error instanceof Error ? error.message : "Unknown error"
-        }
-      });
+  // Start immediately so room-created runs are not lost in runtimes that may drop delayed timers.
+  void runAgentPipeline(roomId, actorId, { pinTopProofs: true }).catch(async (error) => {
+    await appendAuditLog({
+      roomId,
+      actorId,
+      actorType: "SYSTEM",
+      action: "AGENT_RUN_FAILED",
+      payload: {
+        message: error instanceof Error ? error.message : "Unknown error"
+      }
     });
-  }, 100);
+  });
 }
 
 export async function onRoomClosed(roomId: string, actorId: string) {

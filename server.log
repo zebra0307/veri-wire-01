@@ -62,3 +62,18 @@
 2026-04-04 23:42:47.570 IST [87815] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5433"
 2026-04-04 23:42:47.575 IST [87816] LOG:  database system was shut down at 2026-04-04 23:42:47 IST
 2026-04-04 23:42:47.584 IST [87815] LOG:  database system is ready to accept connections
+2026-04-05 00:42:15.148 IST [22060] ERROR:  insert or update on table "AuditLog" violates foreign key constraint "AuditLog_actorId_fkey"
+2026-04-05 00:42:15.148 IST [22060] DETAIL:  Key (actorId)=(demo-trigger) is not present in table "User".
+2026-04-05 00:42:15.148 IST [22060] STATEMENT:  INSERT INTO "public"."AuditLog" ("id","roomId","actorId","actorType","action","payload","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING "public"."AuditLog"."id", "public"."AuditLog"."roomId", "public"."AuditLog"."actorId", "public"."AuditLog"."actorType", "public"."AuditLog"."action", "public"."AuditLog"."payload", "public"."AuditLog"."createdAt"
+2026-04-05 00:46:13.033 IST [22031] ERROR:  insert or update on table "AuditLog" violates foreign key constraint "AuditLog_actorId_fkey"
+2026-04-05 00:46:13.033 IST [22031] DETAIL:  Key (actorId)=(demo-trigger) is not present in table "User".
+2026-04-05 00:46:13.033 IST [22031] STATEMENT:  INSERT INTO "public"."AuditLog" ("id","roomId","actorId","actorType","action","payload","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING "public"."AuditLog"."id", "public"."AuditLog"."roomId", "public"."AuditLog"."actorId", "public"."AuditLog"."actorType", "public"."AuditLog"."action", "public"."AuditLog"."payload", "public"."AuditLog"."createdAt"
+2026-04-05 00:47:12.155 IST [22031] ERROR:  insert or update on table "AuditLog" violates foreign key constraint "AuditLog_actorId_fkey"
+2026-04-05 00:47:12.155 IST [22031] DETAIL:  Key (actorId)=(demo-trigger) is not present in table "User".
+2026-04-05 00:47:12.155 IST [22031] STATEMENT:  INSERT INTO "public"."AuditLog" ("id","roomId","actorId","actorType","action","payload","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING "public"."AuditLog"."id", "public"."AuditLog"."roomId", "public"."AuditLog"."actorId", "public"."AuditLog"."actorType", "public"."AuditLog"."action", "public"."AuditLog"."payload", "public"."AuditLog"."createdAt"
+2026-04-05 03:27:29.536 IST [26666] ERROR:  column "sourceurl" does not exist at character 102
+2026-04-05 03:27:29.536 IST [26666] HINT:  Perhaps you meant to reference the column "Evidence.sourceUrl".
+2026-04-05 03:27:29.536 IST [26666] STATEMENT:  SELECT count(*) FILTER (WHERE snippet ILIKE 'Error Page%') AS error_evidence, count(*) FILTER (WHERE sourceUrl LIKE '%medicalnewstoday.com/articles/155646%') AS offclaim_evidence FROM "Evidence" WHERE "roomId"='N1O2C6HQ' AND "removedAt" IS NULL;
+2026-04-05 06:43:25.363 IST [40041] ERROR:  unexpected data beyond EOF in block 1 of relation base/16385/16527
+2026-04-05 06:43:25.363 IST [40041] HINT:  This has been seen to occur with buggy kernels; consider updating your system.
+2026-04-05 06:43:25.363 IST [40041] STATEMENT:  INSERT INTO "public"."Evidence" ("id","roomId","submittedBy","sourceUrl","sourceName","sourceFaviconUrl","snippet","stance","type","agentConfidence","disputedBy","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7,CAST($8::text AS "public"."Stance"),CAST($9::text AS "public"."EvidenceType"),$10,$11,$12) RETURNING "public"."Evidence"."id", "public"."Evidence"."sourceName", "public"."Evidence"."sourceUrl", "public"."Evidence"."snippet", "public"."Evidence"."stance"::text, "public"."Evidence"."agentConfidence"

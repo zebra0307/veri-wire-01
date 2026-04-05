@@ -3,14 +3,19 @@ import { runAgentPipeline } from "@/lib/agent";
 import { appendAuditLog } from "@/lib/audit";
 import { env } from "@/lib/env";
 import { handleRouteError, jsonError } from "@/lib/http";
+import { unwrapRouteParams } from "@/lib/route-params";
 
-export async function POST(request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
+    const { roomId } = await unwrapRouteParams(params);
     const internalToken = request.headers.get("x-agent-internal-secret");
 
     if (!internalToken || !env.INTERNAL_AGENT_SECRET || internalToken !== env.INTERNAL_AGENT_SECRET) {
       await appendAuditLog({
-        roomId: params.roomId,
+        roomId,
         actorType: "SYSTEM",
         action: "AGENT_RUN_REJECTED",
         payload: {
@@ -23,7 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       });
     }
 
-    const result = await runAgentPipeline(params.roomId);
+    const result = await runAgentPipeline(roomId);
 
     return NextResponse.json({
       ok: true,

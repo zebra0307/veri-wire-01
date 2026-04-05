@@ -5,21 +5,26 @@ import { getSessionUser } from "@/lib/auth";
 import { appendAuditLog } from "@/lib/audit";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { unwrapRouteParams } from "@/lib/route-params";
 import { requireRoomRole } from "@/lib/security/authz";
 import { RateLimitError, enforceRateLimit } from "@/lib/security/rate-limit";
 import { voteSchema } from "@/lib/validation";
 
-export async function POST(request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     const user = await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     await requireRoomRole({
-      roomId: params.roomId,
+      roomId,
       user,
       allowed: [RoomRole.OWNER, RoomRole.CONTRIBUTOR, RoomRole.VOTER]
     });
 
-    const room = await prisma.room.findUnique({ where: { id: params.roomId } });
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) {
       return jsonError(404, { error: "Room not found" });
     }
@@ -38,7 +43,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     const existing = await prisma.vote.findUnique({
       where: {
         roomId_userId: {
-          roomId: params.roomId,
+          roomId: roomId,
           userId: user.id
         }
       }
@@ -49,7 +54,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     }
 
     await enforceRateLimit({
-      key: `vote-submit:${params.roomId}:${user.id}`,
+      key: `vote-submit:${roomId}:${user.id}`,
       limit: 5,
       windowSeconds: 60
     });
@@ -59,7 +64,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
 
     const vote = await prisma.vote.create({
       data: {
-        roomId: params.roomId,
+        roomId: roomId,
         userId: user.id,
         verdict: parsed.data.verdict,
         weight
@@ -68,7 +73,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
 
     const allVotes = await prisma.vote.findMany({
       where: {
-        roomId: params.roomId
+        roomId: roomId
       },
       select: {
         verdict: true,
@@ -79,7 +84,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     const weighted = computeWeightedResults(allVotes);
 
     await appendAuditLog({
-      roomId: params.roomId,
+      roomId: roomId,
       actorId: user.id,
       actorType: "USER",
       action: "VOTE_CAST",

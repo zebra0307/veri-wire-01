@@ -21,7 +21,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${GeistMono.variable} font-sans text-vv-text antialiased`}>{children}</body>
+      <body
+        className={`${inter.variable} ${GeistMono.variable} min-h-screen bg-vv-bg font-sans text-vv-text antialiased selection:bg-vv-accent/30 selection:text-vv-text`}
+      >
+        {children}
+      </body>
     </html>
   );
 }

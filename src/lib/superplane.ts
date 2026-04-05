@@ -24,7 +24,7 @@ export async function dispatchWorkflowEvent(input: {
 }) {
   if (env.SUPERPLANE_WEBHOOK_URL) {
     try {
-      await fetch(env.SUPERPLANE_WEBHOOK_URL, {
+      const response = await fetch(env.SUPERPLANE_WEBHOOK_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -33,6 +33,10 @@ export async function dispatchWorkflowEvent(input: {
         body: JSON.stringify(input),
         cache: "no-store"
       });
+
+      if (!response.ok) {
+        throw new Error(`SuperPlane webhook returned status ${response.status}`);
+      }
 
       await appendAuditLog({
         roomId: input.roomId,

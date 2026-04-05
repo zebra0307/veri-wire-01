@@ -4,6 +4,7 @@ import { generateAgentChatResponse } from "@/lib/agent";
 import { getSessionUser } from "@/lib/auth";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { unwrapRouteParams } from "@/lib/route-params";
 import { RateLimitError, enforceRateLimit } from "@/lib/security/rate-limit";
 import { requireRoomRole } from "@/lib/security/authz";
 import { sanitizeChatBody } from "@/lib/security/sanitize";
@@ -11,12 +12,16 @@ import { fetchRecentRoomMessagesChronological, ROOM_MESSAGE_PAGE, roomMessageInc
 import { publishSpacetimeEvent } from "@/lib/spacetime";
 import { roomMessageSchema } from "@/lib/validation";
 
-export async function GET(_request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     const room = await prisma.room.findUnique({
-      where: { id: params.roomId },
+      where: { id: roomId },
       select: { id: true }
     });
 
@@ -24,7 +29,7 @@ export async function GET(_request: NextRequest, { params }: { params: { roomId:
       return jsonError(404, { error: "Room not found" });
     }
 
-    const messages = await fetchRecentRoomMessagesChronological(params.roomId, ROOM_MESSAGE_PAGE);
+    const messages = await fetchRecentRoomMessagesChronological(roomId, ROOM_MESSAGE_PAGE);
 
     return NextResponse.json({ messages });
   } catch (error) {
@@ -32,12 +37,16 @@ export async function GET(_request: NextRequest, { params }: { params: { roomId:
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     const user = await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     const room = await prisma.room.findUnique({
-      where: { id: params.roomId },
+      where: { id: roomId },
       select: { id: true, status: true }
     });
 
@@ -50,13 +59,13 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     }
 
     await requireRoomRole({
-      roomId: params.roomId,
+      roomId: roomId,
       user,
       allowed: [RoomRole.OWNER, RoomRole.CONTRIBUTOR, RoomRole.VOTER]
     });
 
     await enforceRateLimit({
-      key: `room_msg:${user.id}:${params.roomId}`,
+      key: `room_msg:${user.id}:${roomId}`,
       limit: 40,
       windowSeconds: 60
     });
@@ -81,7 +90,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       const evidence = await prisma.evidence.findFirst({
         where: {
           id: parsed.data.evidenceId,
-          roomId: params.roomId,
+          roomId: roomId,
           removedAt: null
         },
         select: { id: true }
@@ -99,7 +108,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
 
     const message = await prisma.roomMessage.create({
       data: {
-        roomId: params.roomId,
+        roomId: roomId,
         userId: user.id,
         body,
         kind,
@@ -109,7 +118,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     });
 
     await publishSpacetimeEvent({
-      roomId: params.roomId,
+      roomId: roomId,
       event: "room.message.created",
       data: {
         id: message.id,
@@ -150,7 +159,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       let proofNotes: Array<{ evidenceId: string; body: string }> = [];
 
       try {
-        const result = await generateAgentChatResponse(params.roomId, agentPrompt, user.id);
+        const result = await generateAgentChatResponse(roomId, agentPrompt, user.id);
         agentText = result.replyText;
         proofNotes = result.proofNotes;
       } catch (agentError) {
@@ -163,7 +172,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
 
       agentReply = await prisma.roomMessage.create({
         data: {
-          roomId: params.roomId,
+          roomId: roomId,
           userId: agentUser.id,
           body: sanitizeChatBody(agentText),
           kind: RoomMessageKind.CHAT
@@ -172,7 +181,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       });
 
       await publishSpacetimeEvent({
-        roomId: params.roomId,
+        roomId: roomId,
         event: "room.message.created",
         data: {
           id: agentReply.id,
@@ -188,7 +197,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       for (const note of proofNotes) {
         const proofReply = await prisma.roomMessage.create({
           data: {
-            roomId: params.roomId,
+            roomId: roomId,
             userId: agentUser.id,
             body: note.body,
             kind: RoomMessageKind.PROOF_NOTE,
@@ -200,7 +209,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
         agentProofReplies.push(proofReply);
 
         await publishSpacetimeEvent({
-          roomId: params.roomId,
+          roomId: roomId,
           event: "room.message.created",
           data: {
             id: proofReply.id,

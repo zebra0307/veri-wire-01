@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/auth";
 import { appendAuditLog } from "@/lib/audit";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { unwrapRouteParams } from "@/lib/route-params";
 import { requireRoomRole } from "@/lib/security/authz";
 
 const CLARITY_TIMEOUT_MS = 30000;
@@ -32,17 +33,21 @@ async function withRouteTimeout<T>(promise: Promise<T>, timeoutMs: number): Prom
   }
 }
 
-export async function POST(_request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function POST(
+  _request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     const user = await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     await requireRoomRole({
-      roomId: params.roomId,
+      roomId,
       user,
       allowed: [RoomRole.OWNER]
     });
 
-    const room = await prisma.room.findUnique({ where: { id: params.roomId } });
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) {
       return jsonError(404, { error: "Room not found" });
     }
@@ -51,13 +56,13 @@ export async function POST(_request: NextRequest, { params }: { params: { roomId
       return jsonError(400, { error: "Clarity card can only be generated for closed rooms" });
     }
 
-    const generation = generateClarityCardForRoom(params.roomId);
+    const generation = generateClarityCardForRoom(roomId);
 
     try {
       const card = await withRouteTimeout(generation, CLARITY_TIMEOUT_MS);
 
       await appendAuditLog({
-        roomId: params.roomId,
+        roomId: roomId,
         actorId: user.id,
         actorType: "USER",
         action: "CLARITY_CARD_REQUESTED",
@@ -80,7 +85,7 @@ export async function POST(_request: NextRequest, { params }: { params: { roomId
       generation
         .then(async (card) => {
           await appendAuditLog({
-            roomId: params.roomId,
+            roomId: roomId,
             actorId: user.id,
             actorType: "SYSTEM",
             action: "CLARITY_CARD_COMPLETED_ASYNC",
@@ -91,7 +96,7 @@ export async function POST(_request: NextRequest, { params }: { params: { roomId
         })
         .catch(async (backgroundError) => {
           await appendAuditLog({
-            roomId: params.roomId,
+            roomId: roomId,
             actorId: user.id,
             actorType: "SYSTEM",
             action: "CLARITY_CARD_ASYNC_FAILED",
@@ -102,7 +107,7 @@ export async function POST(_request: NextRequest, { params }: { params: { roomId
         });
 
       await appendAuditLog({
-        roomId: params.roomId,
+        roomId: roomId,
         actorId: user.id,
         actorType: "USER",
         action: "CLARITY_CARD_REQUESTED",

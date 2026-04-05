@@ -3,6 +3,7 @@ import { computeWeightedResults } from "@/lib/agent";
 import { getSessionUser } from "@/lib/auth";
 import { handleRouteError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { unwrapRouteParams } from "@/lib/route-params";
 import { fetchRecentRoomMessagesChronological, ROOM_MESSAGE_SNAPSHOT_LIMIT } from "@/lib/room-messages";
 
 export const dynamic = "force-dynamic";
@@ -210,12 +211,15 @@ async function buildRoomSnapshot(roomId: string): Promise<Snapshot | null> {
   };
 }
 
-export async function GET(request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     const encoder = new TextEncoder();
-    const roomId = params.roomId;
     const resumeFrom = request.headers.get("last-event-id");
 
     let closed = false;

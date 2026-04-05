@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/auth";
 import { appendAuditLog } from "@/lib/audit";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { unwrapRouteParams } from "@/lib/route-params";
 import { requireRoomRole } from "@/lib/security/authz";
 import { dispatchWorkflowEvent } from "@/lib/superplane";
 import { statusSchema } from "@/lib/validation";
@@ -16,18 +17,22 @@ const allowedTransitions: Record<RoomStatus, RoomStatus[]> = {
   CLOSED: []
 };
 
-export async function POST(request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     const user = await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     await requireRoomRole({
-      roomId: params.roomId,
+      roomId,
       user,
       allowed: [RoomRole.OWNER]
     });
 
     const room = await prisma.room.findUnique({
-      where: { id: params.roomId }
+      where: { id: roomId }
     });
 
     if (!room) {
@@ -52,7 +57,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     if (nextStatus === RoomStatus.CLOSED) {
       const votes = await prisma.vote.findMany({
         where: {
-          roomId: params.roomId
+          roomId: roomId
         },
         select: {
           verdict: true,
@@ -67,7 +72,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       const derived = deriveVerdictFromVotes(votes);
 
       await prisma.room.update({
-        where: { id: params.roomId },
+        where: { id: roomId },
         data: {
           status: RoomStatus.CLOSED,
           verdict: parsed.data.verdict ?? derived,
@@ -77,7 +82,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       });
 
       await appendAuditLog({
-        roomId: params.roomId,
+        roomId: roomId,
         actorId: user.id,
         actorType: "USER",
         action: "STATUS_TRANSITION",
@@ -89,7 +94,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
 
       await dispatchWorkflowEvent({
         event: "room.closed",
-        roomId: params.roomId,
+        roomId: roomId,
         actorId: user.id
       });
 
@@ -101,7 +106,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
 
     await prisma.room.update({
       where: {
-        id: params.roomId
+        id: roomId
       },
       data: {
         status: nextStatus
@@ -111,7 +116,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     if (nextStatus === RoomStatus.PENDING_VERDICT) {
       await prisma.checklistTask.updateMany({
         where: {
-          roomId: params.roomId,
+          roomId: roomId,
           title: "Poll opened"
         },
         data: {
@@ -122,7 +127,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     }
 
     await appendAuditLog({
-      roomId: params.roomId,
+      roomId: roomId,
       actorId: user.id,
       actorType: "USER",
       action: "STATUS_TRANSITION",

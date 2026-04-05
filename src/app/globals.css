@@ -3,29 +3,25 @@
 @tailwind utilities;
 
 :root {
-  --vv-bg: #090b0f;
-  --vv-surface-1: #12161d;
-  --vv-surface-2: #1a2029;
-  --vv-surface-3: #232b36;
-  --vv-accent: #24d3ee;
-  --vv-amber: #f9b24a;
-  --vv-emerald: #15c38f;
-  --vv-crimson: #f25b64;
-  --vv-slate: #7a8698;
-  --vv-text: #e9edf2;
-  --vv-muted: #8894a5;
-  --vv-border: rgba(255, 255, 255, 0.08);
-  --vv-agent: #6091ff;
+  --vv-bg: #2c2c2c;
+  --vv-surface-1: #333333;
+  --vv-surface-2: #3d3d3d;
+  --vv-surface-3: #484848;
+  --vv-accent: #ff6b35;
+  --vv-amber: #ff8c42;
+  --vv-emerald: #4ade80;
+  --vv-crimson: #f87171;
+  --vv-slate: #94a3b8;
+  --vv-text: #f5f5f5;
+  --vv-muted: #a8a8a8;
+  --vv-border: rgba(255, 107, 53, 0.35);
+  --vv-agent: #ff7a4d;
 }
 
 html,
 body {
   min-height: 100%;
-  background:
-    radial-gradient(circle at 6% -12%, rgba(36, 211, 238, 0.16), transparent 28%),
-    radial-gradient(circle at 92% 2%, rgba(96, 145, 255, 0.14), transparent 24%),
-    radial-gradient(circle at 42% 118%, rgba(21, 195, 143, 0.08), transparent 24%),
-    linear-gradient(158deg, #090b0f 0%, #0c1016 38%, #090b0f 100%);
+  background: var(--vv-bg);
   color: var(--vv-text);
 }
 
@@ -44,82 +40,69 @@ body {
 }
 
 .veriwire-shell::before {
-  content: "";
+  content: none;
   position: fixed;
   inset: 0;
   z-index: -2;
   pointer-events: none;
-  background:
-    radial-gradient(circle at 82% 12%, rgba(249, 178, 74, 0.06), transparent 28%),
-    radial-gradient(circle at 18% 78%, rgba(36, 211, 238, 0.08), transparent 32%);
 }
 
 .veriwire-shell::after {
-  content: "";
+  content: none;
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.07;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0.35) 0,
-    rgba(255, 255, 255, 0.35) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-  mix-blend-mode: soft-light;
 }
 
 .veriwire-topbar {
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: linear-gradient(150deg, rgba(22, 28, 36, 0.9), rgba(14, 19, 25, 0.9));
-  box-shadow: 0 22px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(12px);
+  border: 1px solid var(--vv-border);
+  background: var(--vv-surface-2);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
 .veriwire-alert {
   border-radius: 12px;
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(6px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
 }
 
 .status-pill {
   @apply rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em];
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 107, 53, 0.12);
 }
 
 .card-shell {
-  @apply rounded-xl border border-white/10;
-  background: linear-gradient(168deg, rgba(24, 30, 39, 0.9), rgba(18, 23, 31, 0.9));
-  box-shadow: 0 22px 36px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(14px);
+  @apply rounded-xl border;
+  border-color: var(--vv-border);
+  background: var(--vv-surface-2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
 }
 
 .feed-item-active {
   box-shadow:
     inset 3px 0 0 var(--vv-accent),
-    0 0 0 1px rgba(36, 211, 238, 0.26),
-    0 14px 24px rgba(0, 0, 0, 0.32);
+    0 0 0 1px rgba(255, 107, 53, 0.45),
+    0 12px 28px rgba(0, 0, 0, 0.4);
 }
 
 .veriwire-shell input,
 .veriwire-shell select,
 .veriwire-shell textarea {
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(20, 25, 33, 0.9);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--vv-border);
+  background: var(--vv-surface-3);
+  color: var(--vv-text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
 }
 
 .veriwire-shell input:focus,
 .veriwire-shell select:focus,
 .veriwire-shell textarea:focus {
-  border-color: rgba(36, 211, 238, 0.7);
-  box-shadow: 0 0 0 3px rgba(36, 211, 238, 0.15);
-  background: rgba(20, 25, 33, 1);
+  border-color: rgba(255, 107, 53, 0.85);
+  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.2);
+  background: var(--vv-surface-3);
 }
 
 .veriwire-shell button {

@@ -14,6 +14,7 @@ cp .env.example .env.local
 - `DATABASE_URL` (Supabase Postgres URI, or local Postgres at `127.0.0.1:5432`)
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL` (usually `http://localhost:3000`)
+- `SPACETIMEDB_ENDPOINT` (required realtime event endpoint)
 - Set either OAuth/email credentials, or use `DEMO_BYPASS_AUTH=true` for local demo mode.
 
 3. Install and prepare database:
@@ -57,7 +58,7 @@ Expected seeded rooms:
 - Persistence: Prisma + Postgres (Supabase recommended)
 - Auth: NextAuth (GitHub OAuth + email)
 - AI: Gemini + bounded agent pipeline
-- Realtime: SSE room stream + optional SpacetimeDB bridge
+- Realtime: SpacetimeDB event publishing (required) + SSE room stream
 
 ## Local production run (no Docker)
 
@@ -82,8 +83,7 @@ SMOKE_BASE_URL="https://your-domain" pnpm smoke
 ## Notes
 
 - Agent run route `/api/rooms/[roomId]/agent/run` is internal-secret gated.
-- With `GEMINI_API_KEY`, agent web retrieval uses Gemini grounding search by default.
-- `BRAVE_SEARCH_API_KEY` is optional. If Gemini grounding is unavailable and Brave is missing, agent web retrieval falls back to DuckDuckGo public search.
+- With `GEMINI_API_KEY`, agent web retrieval uses Gemini grounding search only.
 - Room stream emits `room.patch` snapshots including message updates.
-- Optional external event fan-out can use `SPACETIMEDB_ENDPOINT`.
+- SpacetimeDB endpoint is required and used as the primary realtime event publish path.
 - `REDIS_URL` is optional. If unavailable, local in-memory fallback is used for rate limits.

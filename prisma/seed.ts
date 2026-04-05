@@ -13,25 +13,63 @@ import {
 const prisma = new PrismaClient();
 
 async function main() {
-  const observer = await prisma.user.upsert({
-    where: { email: "observer@veriwire.demo" },
-    update: {},
+  const dummy1 = await prisma.user.upsert({
+    where: { email: "dummy1@veriwire.demo" },
+    update: {
+      name: "Dummy User 1",
+      role: GlobalRole.USER,
+      contributorScore: 1.0
+    },
     create: {
-      email: "observer@veriwire.demo",
-      name: "Demo Observer",
+      email: "dummy1@veriwire.demo",
+      name: "Dummy User 1",
       role: GlobalRole.USER,
       contributorScore: 1.0
     }
   });
 
-  const moderator = await prisma.user.upsert({
-    where: { email: "moderator@veriwire.demo" },
-    update: {},
+  const dummy2 = await prisma.user.upsert({
+    where: { email: "dummy2@veriwire.demo" },
+    update: {
+      name: "Dummy User 2",
+      role: GlobalRole.USER,
+      contributorScore: 1.15
+    },
     create: {
-      email: "moderator@veriwire.demo",
-      name: "Fact Moderator",
+      email: "dummy2@veriwire.demo",
+      name: "Dummy User 2",
+      role: GlobalRole.USER,
+      contributorScore: 1.15
+    }
+  });
+
+  const dummy3 = await prisma.user.upsert({
+    where: { email: "dummy3@veriwire.demo" },
+    update: {
+      name: "Dummy User 3",
       role: GlobalRole.MODERATOR,
-      contributorScore: 2.4
+      contributorScore: 1.4
+    },
+    create: {
+      email: "dummy3@veriwire.demo",
+      name: "Dummy User 3",
+      role: GlobalRole.MODERATOR,
+      contributorScore: 1.4
+    }
+  });
+
+  const dummy4 = await prisma.user.upsert({
+    where: { email: "dummy4@veriwire.demo" },
+    update: {
+      name: "Dummy User 4",
+      role: GlobalRole.ADMIN,
+      contributorScore: 1.8
+    },
+    create: {
+      email: "dummy4@veriwire.demo",
+      name: "Dummy User 4",
+      role: GlobalRole.ADMIN,
+      contributorScore: 1.8
     }
   });
 
@@ -44,7 +82,7 @@ async function main() {
       claimNormalized: "Hot water with turmeric cures dengue fever",
       status: RoomStatus.INVESTIGATING,
       tags: ["health", "viral-remedy"],
-      createdBy: moderator.id,
+      createdBy: dummy3.id,
       heatScore: 0.82,
       recurrenceCount: 1
     }
@@ -57,7 +95,7 @@ async function main() {
       claimNormalized: "Government announced free LPG cylinders for BPL families",
       status: RoomStatus.PENDING_VERDICT,
       tags: ["policy", "benefits"],
-      createdBy: moderator.id,
+      createdBy: dummy3.id,
       heatScore: 0.74,
       recurrenceCount: 3
     }
@@ -72,7 +110,7 @@ async function main() {
       verdict: Verdict.FALSE,
       confidence: Confidence.HIGH,
       tags: ["tech", "whatsapp"],
-      createdBy: moderator.id,
+      createdBy: dummy3.id,
       heatScore: 0.61,
       recurrenceCount: 5,
       closedAt: new Date()
@@ -81,12 +119,18 @@ async function main() {
 
   await prisma.roomMember.createMany({
     data: [
-      { roomId: room1.id, userId: moderator.id, role: RoomRole.OWNER },
-      { roomId: room1.id, userId: observer.id, role: RoomRole.CONTRIBUTOR },
-      { roomId: room2.id, userId: moderator.id, role: RoomRole.OWNER },
-      { roomId: room2.id, userId: observer.id, role: RoomRole.VOTER },
-      { roomId: room3.id, userId: moderator.id, role: RoomRole.OWNER },
-      { roomId: room3.id, userId: observer.id, role: RoomRole.OBSERVER }
+      { roomId: room1.id, userId: dummy1.id, role: RoomRole.OWNER },
+      { roomId: room1.id, userId: dummy2.id, role: RoomRole.OWNER },
+      { roomId: room1.id, userId: dummy3.id, role: RoomRole.OWNER },
+      { roomId: room1.id, userId: dummy4.id, role: RoomRole.OWNER },
+      { roomId: room2.id, userId: dummy1.id, role: RoomRole.OWNER },
+      { roomId: room2.id, userId: dummy2.id, role: RoomRole.OWNER },
+      { roomId: room2.id, userId: dummy3.id, role: RoomRole.OWNER },
+      { roomId: room2.id, userId: dummy4.id, role: RoomRole.OWNER },
+      { roomId: room3.id, userId: dummy1.id, role: RoomRole.OWNER },
+      { roomId: room3.id, userId: dummy2.id, role: RoomRole.OWNER },
+      { roomId: room3.id, userId: dummy3.id, role: RoomRole.OWNER },
+      { roomId: room3.id, userId: dummy4.id, role: RoomRole.OWNER }
     ]
   });
 
@@ -105,7 +149,7 @@ async function main() {
       },
       {
         roomId: room1.id,
-        submittedBy: observer.id,
+        submittedBy: dummy2.id,
         sourceUrl: "https://www.cdc.gov/dengue/about/index.html",
         sourceName: "CDC",
         snippet: "CDC guidance focuses on hydration, rest, and medical supervision rather than home cure claims.",
@@ -130,8 +174,7 @@ async function main() {
 
   await prisma.vote.createMany({
     data: [
-      { roomId: room2.id, userId: observer.id, verdict: Verdict.FALSE, weight: 1.2 },
-      { roomId: room2.id, userId: moderator.id, verdict: Verdict.FALSE, weight: 2.4 }
+      { roomId: room2.id, userId: dummy2.id, verdict: Verdict.FALSE, weight: 1.15 }
     ]
   });
 
@@ -204,21 +247,21 @@ async function main() {
     data: [
       {
         roomId: room1.id,
-        actorId: moderator.id,
+        actorId: dummy3.id,
         actorType: "USER",
         action: "ROOM_CREATED",
         payload: { status: room1.status }
       },
       {
         roomId: room2.id,
-        actorId: moderator.id,
+        actorId: dummy3.id,
         actorType: "USER",
         action: "STATUS_SET_PENDING_VERDICT",
         payload: { status: room2.status }
       },
       {
         roomId: room3.id,
-        actorId: moderator.id,
+        actorId: dummy3.id,
         actorType: "USER",
         action: "ROOM_CLOSED",
         payload: { verdict: room3.verdict, confidence: room3.confidence }

@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { appendAuditLog } from "@/lib/audit";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { unwrapRouteParams } from "@/lib/route-params";
 import { requireRoomRole } from "@/lib/security/authz";
 import { validateSourceUrl } from "@/lib/security/agent-guard";
 import { RateLimitError, enforceRateLimit } from "@/lib/security/rate-limit";
@@ -64,12 +65,16 @@ async function fetchEvidenceSnippet(url: string) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     const user = await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     await requireRoomRole({
-      roomId: params.roomId,
+      roomId,
       user,
       allowed: [RoomRole.OWNER, RoomRole.CONTRIBUTOR, RoomRole.VOTER]
     });
@@ -80,7 +85,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
       windowSeconds: 3600
     });
 
-    const room = await prisma.room.findUnique({ where: { id: params.roomId } });
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) {
       return jsonError(404, { error: "Room not found" });
     }
@@ -99,7 +104,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     const snippetResult = await fetchEvidenceSnippet(parsed.data.sourceUrl);
     if (snippetResult.blocked) {
       await appendAuditLog({
-        roomId: params.roomId,
+        roomId: roomId,
         actorId: user.id,
         actorType: "USER",
         action: "EVIDENCE_BLOCKED",
@@ -119,7 +124,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
 
     const evidence = await prisma.evidence.create({
       data: {
-        roomId: params.roomId,
+        roomId: roomId,
         submittedBy: user.id,
         sourceUrl: parsed.data.sourceUrl,
         sourceName: sourceNameFromUrl(parsed.data.sourceUrl),
@@ -146,7 +151,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
 
     const evidenceCount = await prisma.evidence.count({
       where: {
-        roomId: params.roomId,
+        roomId: roomId,
         removedAt: null
       }
     });
@@ -154,7 +159,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     if (evidenceCount >= 3) {
       await prisma.checklistTask.updateMany({
         where: {
-          roomId: params.roomId,
+          roomId: roomId,
           title: "3 evidence items added"
         },
         data: {
@@ -165,7 +170,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     }
 
     await appendAuditLog({
-      roomId: params.roomId,
+      roomId: roomId,
       actorId: user.id,
       actorType: "USER",
       action: "EVIDENCE_ADDED",
@@ -177,7 +182,7 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
     });
 
     await publishSpacetimeEvent({
-      roomId: params.roomId,
+      roomId: roomId,
       event: "room.evidence.created",
       data: {
         evidenceId: evidence.id,
@@ -199,12 +204,16 @@ export async function POST(request: NextRequest, { params }: { params: { roomId:
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     const user = await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     await requireRoomRole({
-      roomId: params.roomId,
+      roomId,
       user,
       allowed: [RoomRole.OWNER]
     });
@@ -218,7 +227,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { roomI
     }
 
     const existing = await prisma.evidence.findUnique({ where: { id: parsed.data.evidenceId } });
-    if (!existing || existing.roomId !== params.roomId) {
+    if (!existing || existing.roomId !== roomId) {
       return jsonError(404, { error: "Evidence not found" });
     }
 
@@ -230,7 +239,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { roomI
     });
 
     await appendAuditLog({
-      roomId: params.roomId,
+      roomId: roomId,
       actorId: user.id,
       actorType: "USER",
       action: "EVIDENCE_REMOVED",

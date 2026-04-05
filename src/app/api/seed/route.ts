@@ -2,7 +2,6 @@ import {
   ChecklistStatus,
   Confidence,
   EvidenceType,
-  GlobalRole,
   RoomRole,
   RoomStatus,
   Stance,
@@ -10,6 +9,7 @@ import {
 } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { demoAccounts } from "@/lib/demo-auth";
 import { env } from "@/lib/env";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -28,35 +28,34 @@ export async function POST() {
       const now = new Date();
       const eightDaysAgo = new Date(now.getTime() - 1000 * 60 * 60 * 24 * 8);
 
-      const observer = await tx.user.upsert({
-        where: { email: "observer@veriwire.demo" },
-        update: {
-          name: "Demo Observer",
-          role: GlobalRole.USER,
-          contributorScore: 1.0
-        },
-        create: {
-          email: "observer@veriwire.demo",
-          name: "Demo Observer",
-          role: GlobalRole.USER,
-          contributorScore: 1.0
-        }
-      });
+      const demoUsers: Record<string, { id: string }> = {};
+      for (const account of demoAccounts) {
+        const user = await tx.user.upsert({
+          where: { email: account.email },
+          update: {
+            name: account.name,
+            role: account.role,
+            contributorScore: account.contributorScore
+          },
+          create: {
+            email: account.email,
+            name: account.name,
+            role: account.role,
+            contributorScore: account.contributorScore
+          }
+        });
 
-      const moderator = await tx.user.upsert({
-        where: { email: "moderator@veriwire.demo" },
-        update: {
-          name: "Fact Moderator",
-          role: GlobalRole.MODERATOR,
-          contributorScore: 2.4
-        },
-        create: {
-          email: "moderator@veriwire.demo",
-          name: "Fact Moderator",
-          role: GlobalRole.MODERATOR,
-          contributorScore: 2.4
-        }
-      });
+        demoUsers[account.id] = { id: user.id };
+      }
+
+      const dummy1 = demoUsers.dummy1;
+      const dummy2 = demoUsers.dummy2;
+      const dummy3 = demoUsers.dummy3;
+      const dummy4 = demoUsers.dummy4;
+
+      if (!dummy1 || !dummy2 || !dummy3 || !dummy4) {
+        throw new Error("Demo users failed to initialize");
+      }
 
       await tx.room.upsert({
         where: { id: "VWRM0001" },
@@ -67,7 +66,7 @@ export async function POST() {
           verdict: null,
           confidence: null,
           tags: ["health", "viral-remedy"],
-          createdBy: moderator.id,
+          createdBy: dummy3.id,
           heatScore: 0.82,
           recurrenceCount: 1,
           closedAt: null,
@@ -81,7 +80,7 @@ export async function POST() {
           claimNormalized: "Hot water with turmeric cures dengue fever",
           status: RoomStatus.INVESTIGATING,
           tags: ["health", "viral-remedy"],
-          createdBy: moderator.id,
+          createdBy: dummy3.id,
           heatScore: 0.82,
           recurrenceCount: 1,
           piiFlagged: false
@@ -97,7 +96,7 @@ export async function POST() {
           verdict: null,
           confidence: null,
           tags: ["policy", "benefits"],
-          createdBy: moderator.id,
+          createdBy: dummy3.id,
           heatScore: 0.74,
           recurrenceCount: 3,
           closedAt: null,
@@ -111,7 +110,7 @@ export async function POST() {
           claimNormalized: "Government announced free LPG cylinders for BPL families",
           status: RoomStatus.PENDING_VERDICT,
           tags: ["policy", "benefits"],
-          createdBy: moderator.id,
+          createdBy: dummy3.id,
           heatScore: 0.74,
           recurrenceCount: 3,
           piiFlagged: false
@@ -127,7 +126,7 @@ export async function POST() {
           verdict: Verdict.FALSE,
           confidence: Confidence.HIGH,
           tags: ["tech", "whatsapp"],
-          createdBy: moderator.id,
+          createdBy: dummy3.id,
           heatScore: 0.61,
           recurrenceCount: 5,
           closedAt: now,
@@ -143,7 +142,7 @@ export async function POST() {
           verdict: Verdict.FALSE,
           confidence: Confidence.HIGH,
           tags: ["tech", "whatsapp"],
-          createdBy: moderator.id,
+          createdBy: dummy3.id,
           heatScore: 0.61,
           recurrenceCount: 5,
           closedAt: now,
@@ -156,12 +155,18 @@ export async function POST() {
       await tx.roomMember.deleteMany({ where: { roomId: { in: [...DEMO_ROOM_IDS] } } });
       await tx.roomMember.createMany({
         data: [
-          { roomId: "VWRM0001", userId: moderator.id, role: RoomRole.OWNER },
-          { roomId: "VWRM0001", userId: observer.id, role: RoomRole.CONTRIBUTOR },
-          { roomId: "VWRM0002", userId: moderator.id, role: RoomRole.OWNER },
-          { roomId: "VWRM0002", userId: observer.id, role: RoomRole.VOTER },
-          { roomId: "VWRM0003", userId: moderator.id, role: RoomRole.OWNER },
-          { roomId: "VWRM0003", userId: observer.id, role: RoomRole.OBSERVER }
+          { roomId: "VWRM0001", userId: dummy1.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0001", userId: dummy2.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0001", userId: dummy3.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0001", userId: dummy4.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0002", userId: dummy1.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0002", userId: dummy2.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0002", userId: dummy3.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0002", userId: dummy4.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0003", userId: dummy1.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0003", userId: dummy2.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0003", userId: dummy3.id, role: RoomRole.OWNER },
+          { roomId: "VWRM0003", userId: dummy4.id, role: RoomRole.OWNER }
         ],
         skipDuplicates: true
       });
@@ -182,7 +187,7 @@ export async function POST() {
           },
           {
             roomId: "VWRM0001",
-            submittedBy: observer.id,
+            submittedBy: dummy2.id,
             sourceUrl: "https://www.cdc.gov/dengue/about/index.html",
             sourceName: "CDC",
             snippet: "CDC guidance focuses on hydration, rest, and medical supervision rather than home cure claims.",
@@ -208,8 +213,7 @@ export async function POST() {
       await tx.vote.deleteMany({ where: { roomId: { in: [...DEMO_ROOM_IDS] } } });
       await tx.vote.createMany({
         data: [
-          { roomId: "VWRM0002", userId: observer.id, verdict: Verdict.FALSE, weight: 1.2 },
-          { roomId: "VWRM0002", userId: moderator.id, verdict: Verdict.FALSE, weight: 2.4 }
+          { roomId: "VWRM0002", userId: dummy2.id, verdict: Verdict.FALSE, weight: 1.15 }
         ],
         skipDuplicates: true
       });
@@ -299,7 +303,7 @@ export async function POST() {
       await tx.auditLog.deleteMany({
         where: {
           roomId: { in: [...DEMO_ROOM_IDS] },
-          actorId: moderator.id,
+          actorId: dummy3.id,
           action: { in: ["ROOM_CREATED", "STATUS_SET_PENDING_VERDICT", "ROOM_CLOSED"] }
         }
       });
@@ -308,21 +312,21 @@ export async function POST() {
         data: [
           {
             roomId: "VWRM0001",
-            actorId: moderator.id,
+            actorId: dummy3.id,
             actorType: "USER",
             action: "ROOM_CREATED",
             payload: { status: RoomStatus.INVESTIGATING }
           },
           {
             roomId: "VWRM0002",
-            actorId: moderator.id,
+            actorId: dummy3.id,
             actorType: "USER",
             action: "STATUS_SET_PENDING_VERDICT",
             payload: { status: RoomStatus.PENDING_VERDICT }
           },
           {
             roomId: "VWRM0003",
-            actorId: moderator.id,
+            actorId: dummy3.id,
             actorType: "USER",
             action: "ROOM_CLOSED",
             payload: { verdict: Verdict.FALSE, confidence: Confidence.HIGH }
@@ -345,8 +349,12 @@ export async function POST() {
 
       return {
         rooms,
-        observerId: observer.id,
-        moderatorId: moderator.id
+        users: {
+          dummy1Id: dummy1.id,
+          dummy2Id: dummy2.id,
+          dummy3Id: dummy3.id,
+          dummy4Id: dummy4.id
+        }
       };
     });
 
@@ -355,10 +363,7 @@ export async function POST() {
       seeded: true,
       roomIds: DEMO_ROOM_IDS,
       rooms: result.rooms,
-      users: {
-        observerId: result.observerId,
-        moderatorId: result.moderatorId
-      }
+      users: result.users
     });
   } catch (error) {
     return handleRouteError(error);

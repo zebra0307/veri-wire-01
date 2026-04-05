@@ -7,7 +7,7 @@ For **high concurrency and low-latency fan-out** (many users in the same room di
 ## Events emitted today
 
 | Event | When |
-|--------|------|
+| ------ | ------ |
 | `audit.appended` | Any audit log row (existing) |
 | `room.message.created` | New rumour-room chat or proof-thread message |
 | `room.evidence.created` | New evidence / proof URL submitted |
@@ -26,6 +26,36 @@ The UI already refreshes when `latestMessageAt` changes on the room SSE stream (
 
 - `SPACETIMEDB_ENDPOINT` — base URL of your ingest bridge (must expose `POST /events`).
 - `SPACETIMEDB_API_KEY` — optional bearer token for the bridge.
+
+## Local bridge (ready to run)
+
+This repo includes a minimal bridge at `spacetimedb/bridge/server.mjs`.
+
+1. Start your SpacetimeDB server (local default usually `http://127.0.0.1:3002`).
+2. Set bridge env vars and run:
+
+```bash
+export SPACETIME_SERVER=http://127.0.0.1:3002
+export SPACETIME_DATABASE=veriwire
+export SPACETIME_REDUCER=ingest_event
+export SPACETIME_BRIDGE_API_KEY=dev-bridge-key
+pnpm spacetime:bridge
+```
+
+1. Point the app to the bridge:
+
+```bash
+SPACETIMEDB_ENDPOINT=http://127.0.0.1:8787
+SPACETIMEDB_API_KEY=dev-bridge-key
+```
+
+The bridge accepts `POST /events` and forwards each event with:
+
+```bash
+spacetime call --server "$SPACETIME_SERVER" "$SPACETIME_DATABASE" "$SPACETIME_REDUCER" '<event-json>'
+```
+
+For full bridge config and test curl, see `spacetimedb/bridge/README.md`.
 
 Optional Supabase Storage or other side services are separate from this pipe; they use `SUPABASE_*` in the main app.
 

@@ -3,14 +3,19 @@ import { computeWeightedResults } from "@/lib/agent";
 import { getSessionUser } from "@/lib/auth";
 import { handleRouteError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { unwrapRouteParams } from "@/lib/route-params";
 import { fetchRecentRoomMessagesChronological, ROOM_MESSAGE_SNAPSHOT_LIMIT } from "@/lib/room-messages";
 
-export async function GET(_request: NextRequest, { params }: { params: { roomId: string } }) {
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { roomId: string } | Promise<{ roomId: string }> }
+) {
   try {
     await getSessionUser();
+    const { roomId } = await unwrapRouteParams(params);
 
     const room = await prisma.room.findUnique({
-      where: { id: params.roomId },
+      where: { id: roomId },
       include: {
         evidence: {
           where: {
@@ -108,7 +113,7 @@ export async function GET(_request: NextRequest, { params }: { params: { roomId:
       };
     }
 
-    const messages = await fetchRecentRoomMessagesChronological(params.roomId, ROOM_MESSAGE_SNAPSHOT_LIMIT);
+    const messages = await fetchRecentRoomMessagesChronological(roomId, ROOM_MESSAGE_SNAPSHOT_LIMIT);
 
     return NextResponse.json({
       room: { ...room, messages },

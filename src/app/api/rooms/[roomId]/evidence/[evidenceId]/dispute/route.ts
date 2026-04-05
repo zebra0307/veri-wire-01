@@ -4,23 +4,32 @@ import { getSessionUser } from "@/lib/auth";
 import { appendAuditLog } from "@/lib/audit";
 import { handleRouteError, jsonError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { unwrapRouteParams } from "@/lib/route-params";
 import { requireRoomRole } from "@/lib/security/authz";
 
-export async function POST(_request: NextRequest, { params }: { params: { roomId: string; evidenceId: string } }) {
+export async function POST(
+  _request: NextRequest,
+  {
+    params
+  }: {
+    params: { roomId: string; evidenceId: string } | Promise<{ roomId: string; evidenceId: string }>;
+  }
+) {
   try {
     const user = await getSessionUser();
+    const { roomId, evidenceId } = await unwrapRouteParams(params);
 
     await requireRoomRole({
-      roomId: params.roomId,
+      roomId,
       user,
       allowed: [RoomRole.OWNER, RoomRole.CONTRIBUTOR, RoomRole.VOTER]
     });
 
     const evidence = await prisma.evidence.findUnique({
-      where: { id: params.evidenceId }
+      where: { id: evidenceId }
     });
 
-    if (!evidence || evidence.roomId !== params.roomId || evidence.removedAt) {
+    if (!evidence || evidence.roomId !== roomId || evidence.removedAt) {
       return jsonError(404, { error: "Evidence not found" });
     }
 
@@ -44,7 +53,7 @@ export async function POST(_request: NextRequest, { params }: { params: { roomId
     });
 
     await appendAuditLog({
-      roomId: params.roomId,
+      roomId,
       actorId: user.id,
       actorType: "USER",
       action: "EVIDENCE_DISPUTED",

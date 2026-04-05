@@ -10,6 +10,7 @@ const emptyToUndefined = (value: unknown) => {
 
 const optionalString = z.preprocess(emptyToUndefined, z.string().optional());
 const optionalUrl = z.preprocess(emptyToUndefined, z.string().url().optional());
+const requiredUrl = z.preprocess(emptyToUndefined, z.string().url());
 
 const envSchema = z.object({
   NEXTAUTH_SECRET: z.string().min(16).default("dev-nextauth-secret-change-me"),
@@ -28,15 +29,23 @@ const envSchema = z.object({
   EMAIL_SERVER_PASSWORD: optionalString,
   EMAIL_FROM: optionalString,
   GEMINI_API_KEY: optionalString,
-  BRAVE_SEARCH_API_KEY: optionalString,
   ELEVENLABS_API_KEY: optionalString,
-  SPACETIMEDB_ENDPOINT: optionalUrl,
+  SPACETIMEDB_ENDPOINT: requiredUrl,
   SPACETIMEDB_API_KEY: optionalString,
   SUPERPLANE_WEBHOOK_URL: optionalUrl,
   SUPERPLANE_SECRET: optionalString,
   DEMO_BYPASS_AUTH: z.enum(["true", "false"]).default("false"),
   APP_URL: z.string().url().default("http://localhost:3000"),
-  INTERNAL_AGENT_SECRET: optionalString
+  INTERNAL_AGENT_SECRET: optionalString,
+  /** ArmorIQ customer SDK: https://platform.armoriq.ai — optional intent verification for VeriAgent. */
+  ARMORIQ_API_KEY: optionalString,
+  ARMORIQ_USER_ID: optionalString,
+  ARMORIQ_AGENT_ID: optionalString,
+  ARMORIQ_CONTEXT_ID: optionalString,
+  ARMORIQ_ENV: z.enum(["production", "development"]).optional(),
+  ARMORIQ_BACKEND_URL: optionalString,
+  ARMORIQ_PROXY_URL: optionalString,
+  ARMORIQ_STRICT: z.enum(["true", "false"]).optional()
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -47,7 +56,7 @@ if (!parsed.success) {
 }
 
 if (process.env.NODE_ENV === "production") {
-  const required = ["NEXTAUTH_SECRET", "NEXTAUTH_URL", "DATABASE_URL"];
+  const required = ["NEXTAUTH_SECRET", "NEXTAUTH_URL", "DATABASE_URL", "SPACETIMEDB_ENDPOINT"];
   for (const key of required) {
     if (!process.env[key]) {
       throw new Error(`Missing required environment variable in production: ${key}`);
@@ -57,5 +66,6 @@ if (process.env.NODE_ENV === "production") {
 
 export const env = {
   ...parsed.data,
-  DEMO_BYPASS_AUTH: parsed.data.DEMO_BYPASS_AUTH === "true"
+  DEMO_BYPASS_AUTH: parsed.data.DEMO_BYPASS_AUTH === "true",
+  ARMORIQ_STRICT: parsed.data.ARMORIQ_STRICT === "true"
 };

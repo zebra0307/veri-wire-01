@@ -81,13 +81,25 @@ async function checkSse(roomId) {
 async function run() {
   console.log(`Smoke check base URL: ${BASE_URL}`);
 
-  await assertJson(
+  const healthData = await assertJson(
     "/api/health",
     undefined,
     (data) => data && data.ok === true,
     "Health endpoint check failed"
   );
   console.log("- /api/health ok");
+  if (healthData.services && healthData.services.armoriq !== undefined) {
+    console.log(`- armoriq (health): ${healthData.services.armoriq}`);
+  }
+
+  const armoriqStatus = await request("/api/armoriq/status");
+  if (armoriqStatus.response.ok && armoriqStatus.data && typeof armoriqStatus.data === "object") {
+    const s = armoriqStatus.data;
+    console.log(
+      `- /api/armoriq/status configured=${s.configured}` +
+        (s.proxy ? ` proxy_ok=${s.proxy.ok}` : "")
+    );
+  }
 
   const seedAttempt = await request("/api/seed", { method: "POST" });
   if (seedAttempt.response.ok) {

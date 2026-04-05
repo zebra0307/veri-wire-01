@@ -1,9 +1,11 @@
 import { GlobalRole } from "@prisma/client";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { nanoid } from "nanoid";
+import { cookies } from "next/headers";
 import { getServerSession, type NextAuthOptions } from "next-auth";
 import EmailProvider from "next-auth/providers/email";
 import GitHubProvider from "next-auth/providers/github";
+import { DEMO_AUTH_COOKIE, getDemoAccountById } from "@/lib/demo-auth";
 import { env } from "@/lib/env";
 import { ApiHttpError } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -112,25 +114,38 @@ export async function getSessionUser(): Promise<SessionUser> {
     );
   }
 
-  const demoModerator = await prisma.user.upsert({
+  const demoAccountId = cookies().get(DEMO_AUTH_COOKIE)?.value;
+  const demoAccount = getDemoAccountById(demoAccountId);
+
+  if (!demoAccount) {
+    throw new ApiHttpError(
+      401,
+      "Unauthorized",
+      "Select a demo account at /login before accessing the app."
+    );
+  }
+
+  const demoUser = await prisma.user.upsert({
     where: {
-      email: "moderator@veriwire.demo"
+      email: demoAccount.email
     },
     update: {
-      name: "Demo Moderator",
-      role: GlobalRole.MODERATOR
+      name: demoAccount.name,
+      role: demoAccount.role,
+      contributorScore: demoAccount.contributorScore
     },
     create: {
-      email: "moderator@veriwire.demo",
-      name: "Demo Moderator",
-      role: GlobalRole.MODERATOR
+      email: demoAccount.email,
+      name: demoAccount.name,
+      role: demoAccount.role,
+      contributorScore: demoAccount.contributorScore
     }
   });
 
   return {
-    id: demoModerator.id,
-    name: demoModerator.name ?? null,
-    email: demoModerator.email ?? null,
-    role: demoModerator.role
+    id: demoUser.id,
+    name: demoUser.name ?? null,
+    email: demoUser.email ?? null,
+    role: demoUser.role
   };
 }

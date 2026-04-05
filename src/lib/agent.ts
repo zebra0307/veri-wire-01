@@ -4,6 +4,11 @@ import path from "node:path";
 import { Confidence, EvidenceType, GlobalRole, RoomMessageKind, RoomStatus, Stance } from "@prisma/client";
 import { z } from "zod";
 import { appendAuditLog } from "@/lib/audit";
+import {
+  buildVeriWireAgentPlan,
+  isArmoriqConfigured,
+  requestArmorIQIntentToken
+} from "@/lib/armoriq";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { classifyOutputBlock, classifyPromptBlock, validateSourceUrl } from "@/lib/security/agent-guard";
@@ -41,20 +46,6 @@ type SearchResult = {
   snippet: string;
 };
 
-type DuckDuckGoTopic = {
-  FirstURL?: string;
-  Text?: string;
-  Topics?: DuckDuckGoTopic[];
-};
-
-type DuckDuckGoResponse = {
-  AbstractURL?: string;
-  AbstractText?: string;
-  Heading?: string;
-  Results?: DuckDuckGoTopic[];
-  RelatedTopics?: DuckDuckGoTopic[];
-};
-
 type AgentAssessment = {
   verdict: "TRUE" | "FALSE" | "UNCLEAR";
   confidence: Confidence;
@@ -87,14 +78,32 @@ type PinnedProofCandidate = {
   agentConfidence: number | null;
 };
 
-type SearchProvider = "gemini-grounding" | "brave" | "duckduckgo" | "none";
+type SearchProvider = "gemini-grounding" | "none";
+
+const MAX_SEARCH_QUERIES = 7;
+const MAX_FETCHED_SOURCES = 24;
+const MAX_ASSESSMENT_ROWS = 20;
+const DEFAULT_GEMINI_GROUNDING_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-3-flash-preview"
+];
+const DEFAULT_GEMINI_FALLBACK_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-3-flash-preview",
+  "gemini-2.5-pro"
+];
+const GROUNDING_QUOTA_COOLDOWN_MS = 60 * 60 * 1000;
 
 const claimRewriteSchema = z.object({
   claimNormalized: z.string().min(8).max(260)
 });
 
 const queryPlanSchema = z.object({
-  queries: z.array(z.string().min(4).max(140)).min(3).max(5)
+  queries: z.array(z.string().min(4).max(140)).min(4).max(MAX_SEARCH_QUERIES)
 });
 
 const assessmentSchema = z.object({
@@ -113,17 +122,29 @@ const chatNarrativeSchema = z.object({
   answer: z.string().min(24).max(2200)
 });
 
-const groundedSourcesSchema = z.object({
-  sources: z
+const linkUnderstandingSchema = z.object({
+  summaries: z
     .array(
       z.object({
-        title: z.string().min(2).max(200),
-        url: z.string().url(),
-        snippet: z.string().min(12).max(500)
+        sourceUrl: z.string().url(),
+        summary: z.string().min(12).max(300)
       })
     )
     .min(1)
     .max(8)
+});
+
+const groundedSourcesSchema = z.object({
+  sources: z
+    .array(
+      z.object({
+        title: z.string().min(1).max(500),
+        url: z.string().url(),
+        snippet: z.string().min(1).max(2000)
+      })
+    )
+    .min(1)
+    .max(MAX_FETCHED_SOURCES * 3)
 });
 
 const clarityCardSchema = z.object({
@@ -140,13 +161,292 @@ function sourceNameFromUrl(url: string) {
   }
 }
 
+function isGroundingRedirectHost(url: string) {
+  try {
+    return new URL(url).hostname.toLowerCase() === "vertexaisearch.cloud.google.com";
+  } catch {
+    return false;
+  }
+}
+
+function extractCanonicalSourceUrlFromHtml(html: string, currentUrl: string) {
+  const candidates = new Set<string>();
+
+  const addCandidate = (value?: string | null) => {
+    if (!value) {
+      return;
+    }
+
+    let candidate = value.trim();
+    if (!candidate) {
+      return;
+    }
+
+    candidate = candidate.replace(/["'<>\s]+$/g, "");
+
+    try {
+      candidate = decodeURIComponent(candidate);
+    } catch {
+      // Keep original candidate when decoding fails.
+    }
+
+    if (!candidate.startsWith("http://") && !candidate.startsWith("https://")) {
+      return;
+    }
+
+    candidates.add(candidate);
+  };
+
+  const canonicalMatch = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i);
+  addCandidate(canonicalMatch?.[1]);
+
+  const ogUrlMatch = html.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i);
+  addCandidate(ogUrlMatch?.[1]);
+
+  const metaRefreshMatch = html.match(/http-equiv=["']refresh["'][^>]+content=["'][^"']*url=([^"']+)["']/i);
+  addCandidate(metaRefreshMatch?.[1]);
+
+  // Some redirect pages expose target URL in query parameters.
+  try {
+    const parsed = new URL(currentUrl);
+    addCandidate(parsed.searchParams.get("url"));
+    addCandidate(parsed.searchParams.get("target"));
+    addCandidate(parsed.searchParams.get("dest"));
+    addCandidate(parsed.searchParams.get("redirect"));
+  } catch {
+    // Ignore malformed URL and continue with HTML-based extraction.
+  }
+
+  // Script-based redirect targets like window.location = "https://..."
+  const locationMatches = html.match(/(?:window\.)?location(?:\.href)?\s*=\s*["'](https?:\/\/[^"']+)["']/gi) ?? [];
+  for (const match of locationMatches) {
+    const urlMatch = match.match(/https?:\/\/[^"']+/i)?.[0];
+    addCandidate(urlMatch);
+  }
+
+  // Structured payloads may contain a target URL field.
+  const jsonUrlMatches = html.match(/"(?:url|target|destination|canonicalUrl)"\s*:\s*"([^"]+)"/gi) ?? [];
+  for (const match of jsonUrlMatches) {
+    const raw = match.match(/"(?:url|target|destination|canonicalUrl)"\s*:\s*"([^"]+)"/i)?.[1];
+    if (raw) {
+      addCandidate(raw.replace(/\\\//g, "/").replace(/\\u0026/g, "&"));
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (isGroundingRedirectHost(candidate)) {
+      continue;
+    }
+
+    const guard = validateSourceUrl(candidate);
+    if (guard.blocked) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return currentUrl;
+}
+
+const relevanceStopwords = new Set([
+  "about",
+  "after",
+  "again",
+  "against",
+  "also",
+  "because",
+  "before",
+  "being",
+  "between",
+  "claim",
+  "from",
+  "have",
+  "into",
+  "just",
+  "more",
+  "most",
+  "news",
+  "none",
+  "only",
+  "other",
+  "over",
+  "said",
+  "same",
+  "some",
+  "than",
+  "that",
+  "their",
+  "there",
+  "these",
+  "they",
+  "this",
+  "those",
+  "through",
+  "under",
+  "very",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "with",
+  "would"
+]);
+
+const broadEntityTokens = new Set(["america", "country", "government", "india", "state", "states", "usa", "world"]);
+
+function normalizeRelevanceText(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/united states of america|united states|u\.s\.a\.|u\.s\./g, " usa ")
+    .replace(/world\s+war\s*(iii|3)/g, " ww3 ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeForRelevance(text: string) {
+  const normalized = normalizeRelevanceText(text);
+  if (!normalized) {
+    return new Set<string>();
+  }
+
+  const tokens = normalized
+    .split(" ")
+    .filter((token) => token.length >= 3 && !relevanceStopwords.has(token));
+
+  return new Set(tokens);
+}
+
+function isLikelyRelevantSource(
+  claimNormalized: string,
+  source: { title: string; url: string; snippet: string },
+  focusQuestion?: string
+) {
+  const claimTokens = tokenizeForRelevance(`${claimNormalized} ${focusQuestion ?? ""}`);
+  if (!claimTokens.size) {
+    return true;
+  }
+
+  const sourceTokens = tokenizeForRelevance(`${source.title} ${source.snippet} ${source.url}`);
+  let overlap = 0;
+  for (const token of claimTokens) {
+    if (sourceTokens.has(token)) {
+      overlap += 1;
+    }
+  }
+
+  const strongClaimTokens = [...claimTokens].filter((token) => token.length >= 4 && !broadEntityTokens.has(token));
+  if (strongClaimTokens.length > 0 && strongClaimTokens.every((token) => !sourceTokens.has(token))) {
+    return false;
+  }
+
+  return overlap >= 1;
+}
+
+function normalizeGeminiModelName(modelName: string) {
+  return modelName.trim().replace(/^models\//i, "");
+}
+
+function hasExplicitGeminiModelConfig() {
+  return Boolean(process.env.GEMINI_MODEL?.trim() || process.env.GEMINI_MODEL_FALLBACKS?.trim());
+}
+
+function isGeminiGroundingCapableModel(modelName: string) {
+  return normalizeGeminiModelName(modelName).toLowerCase().startsWith("gemini-");
+}
+
+function isGeminiQuotaOrRateLimitMessage(detail: string | null | undefined) {
+  if (!detail) {
+    return false;
+  }
+
+  return /(\b429\b|resource_exhausted|quota|rate[\s-]?limit|too many requests|exceeded your current quota)/i.test(detail);
+}
+
+function summarizeGroundingFailure(detail: string) {
+  if (isGeminiQuotaOrRateLimitMessage(detail)) {
+    return "Gemini grounding quota/rate limit reached. Web source refresh is temporarily unavailable until quota resets.";
+  }
+
+  return `Gemini grounding could not return sources: ${sanitizeSnippet(detail, 220)}`;
+}
+
+function usesLegacySearchRetrievalTool(modelName: string) {
+  const n = normalizeGeminiModelName(modelName).toLowerCase();
+  return /^gemini-1\./.test(n);
+}
+
+function buildGroundingTools(modelName: string) {
+  if (usesLegacySearchRetrievalTool(modelName)) {
+    return [
+      {
+        google_search_retrieval: {
+          dynamic_retrieval_config: {
+            mode: "MODE_DYNAMIC",
+            dynamic_threshold: 0.3
+          }
+        }
+      }
+    ];
+  }
+  return [{ google_search: {} }];
+}
+
+function getGeminiCandidateModels() {
+  const explicitPreferred = normalizeGeminiModelName(process.env.GEMINI_MODEL?.trim() ?? "");
+  const preferredModel = normalizeGeminiModelName(process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash");
+  const envFallbacks = (process.env.GEMINI_MODEL_FALLBACKS ?? "")
+    .split(",")
+    .map((value) => normalizeGeminiModelName(value))
+    .filter(Boolean);
+
+  if (hasExplicitGeminiModelConfig()) {
+    const configured = [...new Set([explicitPreferred, ...envFallbacks])].filter(Boolean);
+    return configured.length ? configured : [preferredModel];
+  }
+
+  const defaults = DEFAULT_GEMINI_FALLBACK_MODELS.map((model) => normalizeGeminiModelName(model));
+
+  return [...new Set([preferredModel, ...envFallbacks, ...defaults])].filter(Boolean);
+}
+
+function getGeminiGroundingCandidateModels() {
+  const configured = getGeminiCandidateModels().filter((model) => isGeminiGroundingCapableModel(model));
+
+  if (hasExplicitGeminiModelConfig()) {
+    return configured;
+  }
+
+  // Without explicit model config, include known grounding defaults.
+  const candidates = [...new Set([...configured, ...DEFAULT_GEMINI_GROUNDING_MODELS])];
+
+  if (!candidates.length) {
+    return [...DEFAULT_GEMINI_GROUNDING_MODELS];
+  }
+
+  return candidates;
+}
+
+function isLikelyErrorSnippet(snippet: string) {
+  if (!snippet) {
+    return true;
+  }
+
+  const errorMarker =
+    /\b(error page|access denied|forbidden|request blocked|captcha|verify you are human|page not found|404 not found|please enable javascript|cloudflare)\b/i;
+  const nutritionSignal = /\b(protein|fat|nutrition|calorie|carb|serving|grams?)\b/i;
+
+  return errorMarker.test(snippet) && !nutritionSignal.test(snippet);
+}
+
 async function callGemini(prompt: string) {
   if (!genAI) {
     return null;
   }
 
-  const preferredModel = process.env.GEMINI_MODEL?.trim() || "gemini-3.1-flash";
-  const candidateModels = [preferredModel, "gemini-2.5-flash", "gemini-2.0-flash-exp"];
+  const candidateModels = getGeminiCandidateModels();
 
   let lastError: unknown;
 
@@ -157,6 +457,11 @@ async function callGemini(prompt: string) {
       return result.response.text();
     } catch (error) {
       lastError = error;
+
+      const detail = sanitizeSnippet(error instanceof Error ? error.message : String(error), 240);
+      if (isGeminiQuotaOrRateLimitMessage(detail)) {
+        break;
+      }
     }
   }
 
@@ -172,52 +477,257 @@ async function callGeminiGrounded(prompt: string) {
     return null;
   }
 
-  const modelName = process.env.GEMINI_MODEL?.trim() || "gemini-3.1-flash";
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+  const candidateModels = getGeminiGroundingCandidateModels();
+  if (!candidateModels.length) {
+    return {
+      text: null,
+      metadataSources: [],
+      errorDetail: "Configured model set does not include a grounding-capable Gemini model."
+    };
+  }
 
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: VERI_AGENT_SYSTEM_PROMPT }]
-        },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }]
-          }
-        ],
-        tools: [{ google_search: {} }],
-        generationConfig: {
-          temperature: 0.2
+  let lastErrorDetail: string | null = null;
+
+  const parseGroundingMetadataSources = (payload: {
+    candidates?: Array<{
+      groundingMetadata?: {
+        groundingChunks?: Array<{
+          web?: {
+            title?: string;
+            uri?: string;
+          };
+        }>;
+        groundingSupports?: Array<{
+          segment?: {
+            text?: string;
+          };
+          groundingChunkIndices?: number[];
+        }>;
+      };
+      citationMetadata?: {
+        citationSources?: Array<{
+          uri?: string;
+          title?: string;
+        }>;
+      };
+    }>;
+  }) => {
+    const deduped = new Map<string, SearchResult>();
+
+    const candidates = payload.candidates ?? [];
+    for (const candidate of candidates) {
+      const chunks = candidate.groundingMetadata?.groundingChunks ?? [];
+      const supports = candidate.groundingMetadata?.groundingSupports ?? [];
+
+      const snippetsByChunk = new Map<number, string[]>();
+      for (const support of supports) {
+        const segmentText = sanitizeSnippet(support.segment?.text ?? "", 220);
+        if (!segmentText) {
+          continue;
         }
-      }),
-      cache: "no-store"
-    });
 
-    if (!response.ok) {
-      return null;
+        for (const chunkIndex of support.groundingChunkIndices ?? []) {
+          const existing = snippetsByChunk.get(chunkIndex) ?? [];
+          if (!existing.includes(segmentText)) {
+            existing.push(segmentText);
+          }
+          snippetsByChunk.set(chunkIndex, existing);
+        }
+      }
+
+      for (const [index, chunk] of chunks.entries()) {
+        const url = chunk.web?.uri ?? "";
+        if (!url || deduped.has(url)) {
+          continue;
+        }
+
+        const guard = validateSourceUrl(url);
+        if (guard.blocked) {
+          continue;
+        }
+
+        const fallbackName = sourceNameFromUrl(url);
+        const title = sanitizeSnippet(chunk.web?.title ?? fallbackName, 140) || fallbackName;
+        const joinedSnippets = (snippetsByChunk.get(index) ?? []).join(" ").trim();
+        const snippet =
+          sanitizeSnippet(joinedSnippets, 220) ||
+          sanitizeSnippet(`Grounded source captured for ${fallbackName}.`, 220);
+
+        deduped.set(url, {
+          title,
+          url,
+          snippet
+        });
+      }
+
+      for (const citation of candidate.citationMetadata?.citationSources ?? []) {
+        const url = citation.uri ?? "";
+        if (!url || deduped.has(url)) {
+          continue;
+        }
+
+        const guard = validateSourceUrl(url);
+        if (guard.blocked) {
+          continue;
+        }
+
+        const fallbackName = sourceNameFromUrl(url);
+        const title = sanitizeSnippet(citation.title ?? fallbackName, 140) || fallbackName;
+        const snippet = sanitizeSnippet(`Grounded source captured for ${fallbackName}.`, 220);
+
+        deduped.set(url, {
+          title,
+          url,
+          snippet
+        });
+      }
     }
 
-    const payload = (await response.json()) as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{ text?: string }>;
+    return Array.from(deduped.values());
+  };
+
+  for (const modelName of candidateModels) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": env.GEMINI_API_KEY
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: `${VERI_AGENT_SYSTEM_PROMPT}\n\n${prompt}` }]
+            }
+          ],
+          tools: buildGroundingTools(modelName),
+          generationConfig: {
+            temperature: 0.2
+          }
+        }),
+        signal: controller.signal,
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        let errorDetail = `Gemini grounding request failed with status ${response.status}.`;
+
+        try {
+          const payload = JSON.parse(responseText) as {
+            error?: {
+              message?: string;
+            };
+          };
+          if (payload.error?.message) {
+            errorDetail = payload.error.message;
+          }
+        } catch {
+          if (responseText.trim()) {
+            errorDetail = responseText.trim();
+          }
+        }
+
+        lastErrorDetail = sanitizeSnippet(errorDetail, 240);
+
+        if (response.status === 401 || response.status === 403 || response.status === 429) {
+          return {
+            text: null,
+            metadataSources: [],
+            errorDetail: lastErrorDetail
+          };
+        }
+
+        if (isGeminiQuotaOrRateLimitMessage(errorDetail)) {
+          return {
+            text: null,
+            metadataSources: [],
+            errorDetail: lastErrorDetail
+          };
+        }
+
+        continue;
+      }
+
+      const payload = (await response.json()) as {
+        promptFeedback?: {
+          blockReason?: string;
+          blockReasonMessage?: string;
         };
-      }>;
-    };
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{ text?: string }>;
+          };
+          groundingMetadata?: {
+            groundingChunks?: Array<{
+              web?: {
+                title?: string;
+                uri?: string;
+              };
+            }>;
+            groundingSupports?: Array<{
+              segment?: {
+                text?: string;
+              };
+              groundingChunkIndices?: number[];
+            }>;
+          };
+          citationMetadata?: {
+            citationSources?: Array<{
+              uri?: string;
+              title?: string;
+            }>;
+          };
+        }>;
+      };
 
-    const parts = payload.candidates?.[0]?.content?.parts ?? [];
-    const text = parts.map((part) => part.text ?? "").join("\n").trim();
+      const parts = payload.candidates?.[0]?.content?.parts ?? [];
+      const text = parts.map((part) => part.text ?? "").join("\n").trim();
+      const metadataSources = parseGroundingMetadataSources(payload);
 
-    return text || null;
-  } catch {
-    return null;
+      if (text || metadataSources.length) {
+        clearTimeout(timeout);
+        return {
+          text: text || null,
+          metadataSources
+        };
+      }
+
+      const noCandidates = !payload.candidates?.length;
+      const emptyContent = !text;
+      if (noCandidates || emptyContent) {
+        const pf = payload.promptFeedback;
+        if (pf?.blockReason) {
+          const msg = [pf.blockReason, pf.blockReasonMessage].filter(Boolean).join(": ");
+          lastErrorDetail = sanitizeSnippet(msg || pf.blockReason, 240);
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        lastErrorDetail = "Gemini grounding timed out while fetching web sources.";
+      } else {
+        lastErrorDetail = sanitizeSnippet(error instanceof Error ? error.message : "Gemini grounding request failed.", 240);
+      }
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
+  if (lastErrorDetail) {
+    return {
+      text: null,
+      metadataSources: [],
+      errorDetail: lastErrorDetail
+    };
+  }
+
+  return null;
 }
 
 function extractJsonPayload(raw: string) {
@@ -313,7 +823,7 @@ Output JSON: {"claimNormalized":"..."}`;
 async function generateSearchQueries(claimNormalized: string, focusQuestion?: string) {
   const prompt = `Claim to verify: ${claimNormalized}
 User focus question (optional): ${focusQuestion || "none"}
-Task: Generate 3 to 5 short web search queries designed to surface high-quality public sources and address the user focus when provided.
+Task: Generate 5 to 7 short web search queries designed to surface high-quality public sources and address the user focus when provided.
 Output JSON: {"queries":["...","..."]}`;
 
   const generated = await callGeminiJson(prompt, queryPlanSchema);
@@ -322,55 +832,84 @@ Output JSON: {"queries":["...","..."]}`;
     `${claimNormalized} fact check`,
     `${claimNormalized} official statement`,
     `${claimNormalized} verification`,
+    `${claimNormalized} debunk`,
+    `${claimNormalized} timeline`,
     focusQuestion ? `${claimNormalized} ${focusQuestion}` : ""
   ];
 
   const candidate = generated?.queries ?? fallback;
   const normalized = [...new Set(candidate.map((query) => sanitizeClaimText(query)).filter(Boolean))];
 
-  return normalized.slice(0, 5);
+  return normalized.slice(0, MAX_SEARCH_QUERIES);
 }
 
-function collectDuckDuckGoTopics(topics: DuckDuckGoTopic[] | undefined, collected: DuckDuckGoTopic[]) {
-  if (!topics?.length) {
-    return;
-  }
+function parseGroundedSearchResults(raw: string): SearchResult[] {
+  const parseGroundedSearchResultsFromText = (text: string): SearchResult[] => {
+    const deduped = new Map<string, SearchResult>();
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
 
-  for (const topic of topics) {
-    if (topic.Topics?.length) {
-      collectDuckDuckGoTopics(topic.Topics, collected);
-      continue;
+    const normalizeDetectedUrl = (value: string) => value.replace(/[)\],.;!?]+$/g, "").trim();
+
+    const pushCandidate = (input: { url: string; titleHint?: string; snippetHint?: string }) => {
+      const normalizedUrl = normalizeDetectedUrl(input.url);
+      if (!normalizedUrl || deduped.has(normalizedUrl)) {
+        return;
+      }
+
+      const guard = validateSourceUrl(normalizedUrl);
+      if (guard.blocked) {
+        return;
+      }
+
+      const fallbackName = sourceNameFromUrl(normalizedUrl);
+      const title = sanitizeSnippet(input.titleHint ?? fallbackName, 140) || fallbackName;
+      const snippet =
+        sanitizeSnippet(input.snippetHint ?? `Grounded source captured for ${fallbackName}.`, 220) ||
+        `Grounded source captured for ${fallbackName}.`;
+
+      deduped.set(normalizedUrl, {
+        title,
+        url: normalizedUrl,
+        snippet
+      });
+    };
+
+    for (const line of lines) {
+      const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+      for (const match of line.matchAll(markdownLinkRegex)) {
+        pushCandidate({
+          url: match[2],
+          titleHint: match[1],
+          snippetHint: line.replace(match[0], match[1]).trim()
+        });
+      }
+
+      const urlRegex = /https?:\/\/[^\s<)\]]+/g;
+      for (const match of line.matchAll(urlRegex)) {
+        const rawUrl = match[0];
+        const cleanedLine = line
+          .replace(rawUrl, "")
+          .replace(/^[-*\d.)\s:>]+/, "")
+          .trim();
+
+        pushCandidate({
+          url: rawUrl,
+          titleHint: cleanedLine || sourceNameFromUrl(rawUrl),
+          snippetHint: cleanedLine || line
+        });
+      }
     }
 
-    collected.push(topic);
-  }
-}
+    return Array.from(deduped.values());
+  };
 
-async function fetchSearchResultsWithGeminiGrounding(
-  claimNormalized: string,
-  queries: string[],
-  focusQuestion?: string
-): Promise<SearchResult[]> {
-  const prompt = `Claim to verify: ${claimNormalized}
-User focus question (optional): ${focusQuestion || "none"}
-Candidate query hints: ${JSON.stringify(queries)}
-Task: Use Google Search to find up-to-date public sources directly relevant to the claim and user focus.
-Return strict JSON only with this shape:
-{"sources":[{"title":"...","url":"https://...","snippet":"..."}]}
-Rules:
-- 4 to 8 sources
-- Prefer authoritative/reporting sources
-- Include mixed evidence (supports/refutes/context) when available
-- No private social profile links`;
-
-  const raw = await callGeminiGrounded(prompt);
-  if (!raw) {
-    return [];
-  }
-
+  const textParsed = parseGroundedSearchResultsFromText(raw);
   const payload = extractJsonPayload(raw);
   if (!payload) {
-    return [];
+    return textParsed;
   }
 
   try {
@@ -378,7 +917,7 @@ Rules:
     const validated = groundedSourcesSchema.safeParse(parsed);
 
     if (!validated.success) {
-      return [];
+      return textParsed;
     }
 
     const deduped = new Map<string, SearchResult>();
@@ -395,116 +934,98 @@ Rules:
       });
     }
 
-    return Array.from(deduped.values()).slice(0, 8);
+    const jsonParsed = Array.from(deduped.values());
+    return jsonParsed.length ? jsonParsed : textParsed;
   } catch {
-    return [];
+    return textParsed;
   }
+}
+
+async function fetchSearchResultsWithGeminiGrounding(
+  claimNormalized: string,
+  queries: string[],
+  focusQuestion?: string
+): Promise<{ results: SearchResult[]; detail?: string }> {
+  const focusedPrompt = `Claim to verify: ${claimNormalized}
+User focus question (optional): ${focusQuestion || "none"}
+Candidate query hints: ${JSON.stringify(queries)}
+Task: Use Google Search to find up-to-date public sources directly relevant to the claim and user focus.
+Return strict JSON only with this shape:
+{"sources":[{"title":"...","url":"https://...","snippet":"..."}]}
+Rules:
+- 8 to ${MAX_FETCHED_SOURCES} sources
+- Prefer authoritative/reporting sources
+- Include mixed evidence (supports/refutes/context) when available
+- No private social profile links`;
+
+  const expansionPrompt = `Claim to verify: ${claimNormalized}
+User focus question (optional): ${focusQuestion || "none"}
+Candidate query hints: ${JSON.stringify(queries)}
+Task: Run a second broad web search pass on this room topic to maximize coverage.
+Return strict JSON only with this shape:
+{"sources":[{"title":"...","url":"https://...","snippet":"..."}]}
+Rules:
+- Prioritize additional sources not overlapping with common fact-check links when possible
+- Include official statements, reporting, and technical explainers tied to the room topic
+- Include mixed evidence (supports/refutes/context) when available
+- No private social profile links`;
+
+  const deduped = new Map<string, SearchResult>();
+  let lastGroundingError: string | undefined;
+
+  for (const prompt of [focusedPrompt, expansionPrompt]) {
+    const grounded = await callGeminiGrounded(prompt);
+    if (!grounded) {
+      continue;
+    }
+
+    if (grounded.errorDetail) {
+      lastGroundingError = grounded.errorDetail;
+      if (isGeminiQuotaOrRateLimitMessage(grounded.errorDetail)) {
+        break;
+      }
+    }
+
+    for (const item of grounded.metadataSources) {
+      if (!deduped.has(item.url)) {
+        deduped.set(item.url, item);
+      }
+    }
+
+    if (!grounded.text) {
+      continue;
+    }
+
+    for (const item of parseGroundedSearchResults(grounded.text)) {
+      if (!deduped.has(item.url)) {
+        deduped.set(item.url, item);
+      }
+    }
+  }
+
+  return {
+    results: Array.from(deduped.values()).slice(0, MAX_FETCHED_SOURCES),
+    detail: deduped.size ? undefined : lastGroundingError
+  };
 }
 
 async function fetchSearchResults(
   claimNormalized: string,
   queries: string[],
   focusQuestion?: string
-): Promise<{ provider: SearchProvider; results: SearchResult[] }> {
+): Promise<{ provider: SearchProvider; results: SearchResult[]; detail?: string }> {
   const grounded = await fetchSearchResultsWithGeminiGrounding(claimNormalized, queries, focusQuestion);
-  if (grounded.length) {
+  if (grounded.results.length) {
     return {
       provider: "gemini-grounding",
-      results: grounded
+      results: grounded.results
     };
-  }
-
-  const all = new Map<string, SearchResult>();
-
-  if (!env.BRAVE_SEARCH_API_KEY) {
-    for (const query of queries) {
-      const response = await fetch(
-        `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`,
-        {
-          headers: {
-            Accept: "application/json"
-          },
-          cache: "no-store"
-        }
-      );
-
-      if (!response.ok) {
-        continue;
-      }
-
-      const data = (await response.json()) as DuckDuckGoResponse;
-      const topics: DuckDuckGoTopic[] = [];
-
-      if (data.AbstractURL && data.AbstractText) {
-        topics.push({
-          FirstURL: data.AbstractURL,
-          Text: data.AbstractText
-        });
-      }
-
-      topics.push(...(data.Results ?? []));
-      collectDuckDuckGoTopics(data.RelatedTopics, topics);
-
-      for (const topic of topics) {
-        if (!topic.FirstURL || !topic.Text) {
-          continue;
-        }
-
-        const sourceGuard = validateSourceUrl(topic.FirstURL);
-        if (sourceGuard.blocked || all.has(topic.FirstURL)) {
-          continue;
-        }
-
-        all.set(topic.FirstURL, {
-          title: sanitizeSnippet(data.Heading || sourceNameFromUrl(topic.FirstURL), 140),
-          url: topic.FirstURL,
-          snippet: sanitizeSnippet(topic.Text, 220)
-        });
-      }
-    }
-
-    return {
-      provider: all.size ? "duckduckgo" : "none",
-      results: Array.from(all.values()).slice(0, 8)
-    };
-  }
-
-  for (const query of queries) {
-    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3`, {
-      headers: {
-        Accept: "application/json",
-        "X-Subscription-Token": env.BRAVE_SEARCH_API_KEY
-      },
-      cache: "no-store"
-    });
-
-    if (!response.ok) {
-      continue;
-    }
-
-    const data = (await response.json()) as {
-      web?: { results?: Array<{ title: string; url: string; description: string }> };
-    };
-
-    for (const result of data.web?.results ?? []) {
-      const sourceGuard = validateSourceUrl(result.url);
-      if (sourceGuard.blocked) {
-        continue;
-      }
-
-      if (!all.has(result.url)) {
-        all.set(result.url, {
-          title: sanitizeSnippet(result.title, 140),
-          url: result.url,
-          snippet: sanitizeSnippet(result.description, 220)
-        });
-      }
-    }
   }
 
   return {
-    provider: all.size ? "brave" : "none",
-    results: Array.from(all.values()).slice(0, 8)
+    provider: "none",
+    results: [],
+    detail: grounded.detail
   };
 }
 
@@ -528,7 +1049,8 @@ async function fetchPublicSnippet(url: string) {
   if (guard.blocked) {
     return {
       blocked: guard,
-      snippet: null
+      snippet: null,
+      resolvedUrl: url
     };
   }
 
@@ -546,6 +1068,30 @@ async function fetchPublicSnippet(url: string) {
       cache: "no-store"
     });
 
+    const html = await response.text();
+    const redirectedUrl = response.url || url;
+    const resolvedUrl = isGroundingRedirectHost(redirectedUrl)
+      ? extractCanonicalSourceUrlFromHtml(html, redirectedUrl)
+      : redirectedUrl;
+
+    if (isGroundingRedirectHost(resolvedUrl)) {
+      return {
+        blocked: null,
+        snippet: null,
+        resolvedUrl
+      };
+    }
+
+    const resolvedGuard = validateSourceUrl(resolvedUrl);
+
+    if (resolvedGuard.blocked) {
+      return {
+        blocked: resolvedGuard,
+        snippet: null,
+        resolvedUrl
+      };
+    }
+
     if (response.status === 402) {
       return {
         blocked: {
@@ -553,22 +1099,25 @@ async function fetchPublicSnippet(url: string) {
           rule: "PAYWALLED_CONTENT" as const,
           explanation: "Source requires payment and is blocked by policy."
         },
-        snippet: null
+        snippet: null,
+        resolvedUrl
       };
     }
 
-    const html = await response.text();
     const stripped = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
     const textOnly = stripped.replace(/<[^>]+>/g, " ");
+    const snippet = sanitizeSnippet(textOnly, 300);
 
     return {
       blocked: null,
-      snippet: sanitizeSnippet(textOnly, 300)
+      snippet: snippet && !isLikelyErrorSnippet(snippet) ? snippet : null,
+      resolvedUrl
     };
   } catch {
     return {
       blocked: null,
-      snippet: null
+      snippet: null,
+      resolvedUrl: url
     };
   } finally {
     clearTimeout(timeout);
@@ -642,9 +1191,13 @@ function evidenceRankForPrompt(stance: Stance, promptLower: string) {
   return 2;
 }
 
-function formatRefreshNote(refreshState: "skipped" | "ran" | "cooldown" | "failed") {
+function formatRefreshNote(refreshState: "skipped" | "ran" | "cooldown" | "failed" | "quota") {
   if (refreshState === "ran") {
     return "I also refreshed the investigation before replying.";
+  }
+
+  if (refreshState === "quota") {
+    return "I skipped a fresh web retrieval run because Gemini quota/rate-limit is currently reached.";
   }
 
   if (refreshState === "cooldown") {
@@ -658,10 +1211,23 @@ function formatRefreshNote(refreshState: "skipped" | "ran" | "cooldown" | "faile
   return null;
 }
 
+function formatGroundingStatusNote(detail: string | null | undefined) {
+  if (!detail) {
+    return null;
+  }
+
+  if (isGeminiQuotaOrRateLimitMessage(detail)) {
+    return "Latest grounding status: Gemini API quota/rate-limit reached. Web source refresh is temporarily unavailable until quota resets.";
+  }
+
+  return `Latest grounding status: ${sanitizeSnippet(detail, 240)}`;
+}
+
 type StanceLinkRow = {
   sourceName: string;
   sourceUrl: string;
   stance: Stance;
+  snippet: string;
 };
 
 function dedupeStanceLinks(rows: StanceLinkRow[]) {
@@ -680,29 +1246,133 @@ function dedupeStanceLinks(rows: StanceLinkRow[]) {
   return deduped;
 }
 
-function formatLinkBucket(title: string, rows: StanceLinkRow[]) {
+function reasonForSource(row: StanceLinkRow, summariesByUrl?: Map<string, string>) {
+  const mapped = summariesByUrl?.get(row.sourceUrl);
+  if (mapped) {
+    return sanitizeSnippet(mapped, 200);
+  }
+
+  const excerpt = sanitizeSnippet(row.snippet, 170);
+
+  if (row.stance === Stance.SUPPORTS) {
+    return excerpt || "Supports the claim according to this source text.";
+  }
+
+  if (row.stance === Stance.REFUTES) {
+    return excerpt || "Refutes the claim according to this source text.";
+  }
+
+  return excerpt || "Provides context that does not fully confirm or refute the claim.";
+}
+
+function formatLinkBucket(title: string, rows: StanceLinkRow[], summariesByUrl?: Map<string, string>) {
   if (!rows.length) {
     return `${title}: none found in the latest grounded run.`;
   }
 
   return [
     `${title}:`,
-    ...rows.map((row, index) => `${index + 1}. ${row.sourceName} - ${row.sourceUrl}`)
+    ...rows.map((row, index) => `${index + 1}. ${row.sourceName} - ${row.sourceUrl}\n   Reason: ${reasonForSource(row, summariesByUrl)}`)
   ].join("\n");
 }
 
-function buildStanceGroupedLinks(rows: StanceLinkRow[]) {
+function buildStanceGroupedLinks(rows: StanceLinkRow[], summariesByUrl?: Map<string, string>) {
   const deduped = dedupeStanceLinks(rows);
 
-  const supports = deduped.filter((row) => row.stance === Stance.SUPPORTS).slice(0, 3);
-  const refutes = deduped.filter((row) => row.stance === Stance.REFUTES).slice(0, 3);
-  const context = deduped.filter((row) => row.stance === Stance.CONTEXT).slice(0, 2);
+  if (!deduped.length) {
+    return "No eligible public sources found in the latest grounded run.";
+  }
+
+  const supports = deduped.filter((row) => row.stance === Stance.SUPPORTS);
+  const refutes = deduped.filter((row) => row.stance === Stance.REFUTES);
+  const context = deduped.filter((row) => row.stance === Stance.CONTEXT);
 
   return [
-    formatLinkBucket("Supportive links", supports),
-    formatLinkBucket("Refuting links", refutes),
-    formatLinkBucket("Unclear/context links", context)
+    `All source reasons (${deduped.length} total):`,
+    formatLinkBucket("Supportive links", supports, summariesByUrl),
+    formatLinkBucket("Refuting links", refutes, summariesByUrl),
+    formatLinkBucket("Unclear/context links", context, summariesByUrl)
   ].join("\n\n");
+}
+
+function fallbackLinkUnderstandingSummary(snippet: string) {
+  const compact = snippet.replace(/\s+/g, " ").trim();
+  const withoutBoilerplate = compact
+    .replace(/about press copyright contact us creator advertise developers.*/i, "")
+    .replace(/privacy policy.*$/i, "")
+    .replace(/all rights reserved.*$/i, "")
+    .trim();
+
+  return sanitizeSnippet(withoutBoilerplate || compact, 190) || "Provides context related to the claim.";
+}
+
+async function buildEvidenceLinkUnderstanding(
+  claimNormalized: string,
+  question: string,
+  evidenceRows: Array<{ sourceName: string; sourceUrl: string; stance: Stance; snippet: string }>
+) {
+  if (!evidenceRows.length) {
+    return new Map<string, string>();
+  }
+
+  const compactRows = evidenceRows.slice(0, 8).map((row) => ({
+    sourceName: row.sourceName,
+    sourceUrl: row.sourceUrl,
+    stance: row.stance,
+    snippet: row.snippet
+  }));
+
+  const prompt = `Claim to verify: ${claimNormalized}
+User question: ${question || "Give your latest investigative take on this rumour."}
+Evidence rows JSON: ${JSON.stringify(compactRows)}
+Task:
+1) Summarize what each source says about the claim in one concise sentence.
+2) Ignore website boilerplate/navigation/cookie text.
+3) Keep summaries factual and neutral.
+Output JSON: {"summaries":[{"sourceUrl":"https://...","summary":"..."}]}`;
+
+  const generated = await callGeminiJson(prompt, linkUnderstandingSchema);
+  const summariesByUrl = new Map<string, string>();
+  const allowedUrls = new Set(compactRows.map((row) => row.sourceUrl));
+
+  if (generated?.summaries?.length) {
+    for (const item of generated.summaries) {
+      if (!allowedUrls.has(item.sourceUrl)) {
+        continue;
+      }
+
+      const summary = sanitizeSnippet(item.summary, 220);
+      if (!summary) {
+        continue;
+      }
+
+      summariesByUrl.set(item.sourceUrl, summary);
+    }
+  }
+
+  for (const row of compactRows) {
+    if (!summariesByUrl.has(row.sourceUrl)) {
+      summariesByUrl.set(row.sourceUrl, fallbackLinkUnderstandingSummary(row.snippet));
+    }
+  }
+
+  return summariesByUrl;
+}
+
+function formatLinkUnderstandingSection(rows: StanceLinkRow[], summariesByUrl: Map<string, string>) {
+  const deduped = dedupeStanceLinks(rows).slice(0, 6);
+
+  if (!deduped.length) {
+    return "Link understanding: no eligible links available yet.";
+  }
+
+  return [
+    "Link understanding:",
+    ...deduped.map(
+      (row, index) =>
+        `${index + 1}. ${row.sourceName} (${row.stance.toLowerCase()}): ${reasonForSource(row, summariesByUrl)} Source: ${row.sourceUrl}`
+    )
+  ].join("\n");
 }
 
 async function classifyEvidenceWithGemini(
@@ -782,7 +1452,7 @@ async function assessEvidence(claim: string, evidenceRows: Array<{ sourceUrl: st
   }
 
   const prompt = `Claim to verify: ${claim}
-Evidence rows (JSON): ${JSON.stringify(evidenceRows.slice(0, 8))}
+Evidence rows (JSON): ${JSON.stringify(evidenceRows.slice(0, MAX_ASSESSMENT_ROWS))}
 Task:
 1) Determine recommended verdict from evidence: TRUE | FALSE | UNCLEAR.
 2) Determine confidence: LOW | MEDIUM | HIGH.
@@ -1030,6 +1700,83 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
   }
 
   const focusQuestion = sanitizeSnippet(options?.focusQuestion ?? "", 240);
+
+  if (isArmoriqConfigured() && env.ARMORIQ_API_KEY) {
+    const plan = buildVeriWireAgentPlan({
+      roomId,
+      claimNormalized: room.claimNormalized,
+      focusQuestion: focusQuestion || undefined
+    });
+    const userId = actorId ?? env.ARMORIQ_USER_ID ?? `room:${roomId}`;
+    const agentId = env.ARMORIQ_AGENT_ID ?? "veriwire-veriagent";
+    const contextId = env.ARMORIQ_CONTEXT_ID ?? "default";
+    const promptForIntent = focusQuestion
+      ? `${room.claimNormalized.slice(0, 500)}\n\nFocus: ${focusQuestion}`
+      : room.claimNormalized.slice(0, 800);
+
+    try {
+      const intent = await requestArmorIQIntentToken({
+        apiKey: env.ARMORIQ_API_KEY,
+        userId,
+        agentId,
+        contextId,
+        plan,
+        llm: getGeminiCandidateModels()[0] ?? "gemini-2.5-flash",
+        prompt: promptForIntent,
+        validitySeconds: 120
+      });
+
+      await appendAuditLog({
+        roomId,
+        actorId,
+        actorType: "AGENT",
+        action: "ARMORIQ_INTENT_ISSUED",
+        payload: {
+          intentReference: intent.intentReference,
+          planHash: intent.planHash,
+          merkleRoot: intent.merkleRoot,
+          stepCount: intent.stepCount,
+          agentId,
+          contextId
+        }
+      });
+
+      const refShort = intent.intentReference.length > 10 ? `${intent.intentReference.slice(0, 8)}…` : intent.intentReference;
+      const hashShort = intent.planHash.length > 12 ? `${intent.planHash.slice(0, 10)}…` : intent.planHash;
+      await prisma.agentEvent.create({
+        data: {
+          roomId,
+          step: "ARMORIQ_INTENT",
+          detail: `Cryptographic intent bound (${refShort}, plan ${hashShort})`,
+          progress: 12
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (env.ARMORIQ_STRICT) {
+        throw error;
+      }
+      await appendAuditLog({
+        roomId,
+        actorId,
+        actorType: "AGENT",
+        action: "ARMORIQ_INTENT_SKIPPED",
+        payload: {
+          reason: message.slice(0, 500)
+        }
+      });
+
+      await prisma.agentEvent.create({
+        data: {
+          roomId,
+          step: "ARMORIQ_INTENT",
+          detail: `ArmorIQ unavailable (run continues): ${sanitizeSnippet(message, 180)}`,
+          progress: 12
+        }
+      });
+    }
+  }
+
   const queries = await generateSearchQueries(room.claimNormalized, focusQuestion || undefined);
 
   await prisma.agentEvent.create({
@@ -1041,11 +1788,41 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
     }
   });
 
-  const { provider, results } = await fetchSearchResults(
-    room.claimNormalized,
-    queries,
-    focusQuestion || undefined
-  );
+  await prisma.agentEvent.create({
+    data: {
+      roomId,
+      step: "SOURCE_FETCH",
+      detail: "Starting Gemini grounding search for this run.",
+      progress: 25
+    }
+  });
+
+  let provider: SearchProvider = "none";
+  let results: SearchResult[] = [];
+  let detail: string | undefined;
+
+  try {
+    const fetched = await fetchSearchResults(
+      room.claimNormalized,
+      queries,
+      focusQuestion || undefined
+    );
+
+    provider = fetched.provider;
+    results = fetched.results;
+    detail = fetched.detail;
+  } catch (error) {
+    detail = sanitizeSnippet(error instanceof Error ? error.message : "Failed to fetch grounded search results.", 220);
+
+    await prisma.agentEvent.create({
+      data: {
+        roomId,
+        step: "SOURCE_FETCH",
+        detail: `Gemini grounding failed before source processing: ${detail}`,
+        progress: 30
+      }
+    });
+  }
 
   if (provider === "gemini-grounding") {
     await prisma.agentEvent.create({
@@ -1058,37 +1835,12 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
     });
   }
 
-  if (provider === "duckduckgo") {
-    await prisma.agentEvent.create({
-      data: {
-        roomId,
-        step: "SOURCE_FETCH",
-        detail: "Gemini grounding unavailable. Using DuckDuckGo fallback search for this run.",
-        progress: 30
-      }
-    });
-  }
-
-  if (provider === "brave") {
-    await prisma.agentEvent.create({
-      data: {
-        roomId,
-        step: "SOURCE_FETCH",
-        detail: "Using Brave search for this run.",
-        progress: 30
-      }
-    });
-  }
-
   if (results.length === 0) {
-    const noResultsDetail =
-      provider === "gemini-grounding"
+    const noResultsDetail = detail
+      ? summarizeGroundingFailure(detail)
+      : provider === "gemini-grounding"
         ? "Gemini grounding returned no eligible public sources for generated queries."
-        : provider === "brave"
-          ? "No eligible public sources returned from Brave for generated queries."
-          : provider === "duckduckgo"
-            ? "No eligible public sources returned from DuckDuckGo fallback for generated queries."
-            : "No eligible public sources were returned by available search providers.";
+        : "Gemini grounding is unavailable or returned no eligible public sources.";
 
     await prisma.agentEvent.create({
       data: {
@@ -1104,6 +1856,8 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
 
   for (const [index, result] of results.entries()) {
     const snippetResponse = await fetchPublicSnippet(result.url);
+    const resolvedSourceUrl = snippetResponse.resolvedUrl || result.url;
+    const resolvedSourceTitle = result.title || sourceNameFromUrl(resolvedSourceUrl);
 
     if (snippetResponse.blocked) {
       await prisma.agentEvent.create({
@@ -1123,7 +1877,7 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
         action: "AGENT_BLOCKED_SOURCE",
         payload: {
           rule: snippetResponse.blocked.rule,
-          sourceUrl: result.url,
+          sourceUrl: resolvedSourceUrl,
           explanation: snippetResponse.blocked.explanation
         }
       });
@@ -1136,11 +1890,34 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
       continue;
     }
 
+    if (
+      !isLikelyRelevantSource(
+        room.claimNormalized,
+        {
+          title: resolvedSourceTitle,
+          url: resolvedSourceUrl,
+          snippet
+        },
+        focusQuestion || undefined
+      )
+    ) {
+      await prisma.agentEvent.create({
+        data: {
+          roomId,
+          step: "SOURCE_FETCH",
+          detail: `Skipped ${index + 1}/${results.length} off-claim source: ${sourceNameFromUrl(resolvedSourceUrl)}`,
+          progress: Math.min(95, 30 + index * 10)
+        }
+      });
+
+      continue;
+    }
+
     const stanceClass = await classifyEvidenceWithGemini(
       room.claimNormalized,
       {
-        title: result.title,
-        url: result.url,
+        title: resolvedSourceTitle,
+        url: resolvedSourceUrl,
         snippet
       },
       focusQuestion || undefined
@@ -1149,7 +1926,7 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
     const existingAgentEvidence = await prisma.evidence.findFirst({
       where: {
         roomId,
-        sourceUrl: result.url,
+        sourceUrl: resolvedSourceUrl,
         submittedBy: "AGENT",
         removedAt: null
       },
@@ -1162,8 +1939,8 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
       ? await prisma.evidence.update({
           where: { id: existingAgentEvidence.id },
           data: {
-            sourceName: sourceNameFromUrl(result.url),
-            sourceFaviconUrl: `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(result.url)}`,
+            sourceName: sourceNameFromUrl(resolvedSourceUrl),
+            sourceFaviconUrl: `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(resolvedSourceUrl)}`,
             snippet,
             stance: stanceClass.stance,
             type: stanceClass.type,
@@ -1182,9 +1959,9 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
           data: {
             roomId,
             submittedBy: "AGENT",
-            sourceUrl: result.url,
-            sourceName: sourceNameFromUrl(result.url),
-            sourceFaviconUrl: `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(result.url)}`,
+              sourceUrl: resolvedSourceUrl,
+              sourceName: sourceNameFromUrl(resolvedSourceUrl),
+              sourceFaviconUrl: `https://www.google.com/s2/favicons?sz=128&domain_url=${encodeURIComponent(resolvedSourceUrl)}`,
             snippet,
             stance: stanceClass.stance,
             type: stanceClass.type,
@@ -1223,20 +2000,42 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
     const existingEvidence = await prisma.evidence.findMany({
       where: {
         roomId,
-        removedAt: null
+        removedAt: null,
+        sourceUrl: {
+          not: {
+            contains: "vertexaisearch.cloud.google.com/grounding-api-redirect"
+          }
+        }
       },
       orderBy: {
         createdAt: "desc"
       },
-      take: 8,
+      take: MAX_FETCHED_SOURCES,
       select: {
+        sourceName: true,
         sourceUrl: true,
         snippet: true,
         stance: true
       }
     });
 
-    assessmentRows = existingEvidence;
+    assessmentRows = existingEvidence
+      .filter((item) =>
+        isLikelyRelevantSource(
+          room.claimNormalized,
+          {
+            title: item.sourceName,
+            url: item.sourceUrl,
+            snippet: item.snippet
+          },
+          focusQuestion || undefined
+        )
+      )
+      .map((item) => ({
+        sourceUrl: item.sourceUrl,
+        snippet: item.snippet,
+        stance: item.stance
+      }));
   }
 
   const assessment = await assessEvidence(room.claimNormalized, assessmentRows);
@@ -1292,28 +2091,42 @@ export async function runAgentPipeline(roomId: string, actorId?: string, options
   let pinnedProofs = 0;
 
   if (options?.pinTopProofs) {
-    const rowsForPinning =
-      savedEvidence.length > 0
-        ? savedEvidence
-        : await prisma.evidence.findMany({
-            where: {
-              roomId,
-              submittedBy: "AGENT",
-              removedAt: null
-            },
-            orderBy: {
-              createdAt: "desc"
-            },
-            take: 8,
-            select: {
-              id: true,
-              sourceName: true,
-              sourceUrl: true,
-              snippet: true,
-              stance: true,
-              agentConfidence: true
-            }
-          });
+    const fallbackRowsForPinning = await prisma.evidence.findMany({
+      where: {
+        roomId,
+        submittedBy: "AGENT",
+        removedAt: null,
+        sourceUrl: {
+          not: {
+            contains: "vertexaisearch.cloud.google.com/grounding-api-redirect"
+          }
+        }
+      },
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: MAX_FETCHED_SOURCES,
+      select: {
+        id: true,
+        sourceName: true,
+        sourceUrl: true,
+        snippet: true,
+        stance: true,
+        agentConfidence: true
+      }
+    });
+
+    const rowsForPinning = (savedEvidence.length > 0 ? savedEvidence : fallbackRowsForPinning).filter((item) =>
+      isLikelyRelevantSource(
+        room.claimNormalized,
+        {
+          title: item.sourceName,
+          url: item.sourceUrl,
+          snippet: item.snippet
+        },
+        focusQuestion || undefined
+      )
+    );
 
     pinnedProofs = await pinProofMessagesForRoom(roomId, rowsForPinning, actorId);
 
@@ -1387,25 +2200,60 @@ export async function generateAgentChatResponse(roomId: string, questionRaw: str
 
   const promptLower = question.toLowerCase();
 
-  let refreshState: "skipped" | "ran" | "cooldown" | "failed" = "skipped";
+  let refreshState: "skipped" | "ran" | "cooldown" | "failed" | "quota" = "skipped";
 
-  try {
-    await runAgentPipeline(roomId, actorId, {
-      focusQuestion: question
-    });
-    refreshState = "ran";
-  } catch (error) {
-    refreshState = error instanceof RateLimitError ? "cooldown" : "failed";
+  const latestSourceFetchEvent = await prisma.agentEvent.findFirst({
+    where: {
+      roomId,
+      step: "SOURCE_FETCH"
+    },
+    orderBy: {
+      createdAt: "desc"
+    },
+    select: {
+      detail: true,
+      createdAt: true
+    }
+  });
+
+  const shouldSkipRefreshForQuota =
+    !!latestSourceFetchEvent &&
+    isGeminiQuotaOrRateLimitMessage(latestSourceFetchEvent.detail) &&
+    Date.now() - latestSourceFetchEvent.createdAt.getTime() < GROUNDING_QUOTA_COOLDOWN_MS;
+
+  if (shouldSkipRefreshForQuota) {
+    refreshState = "quota";
+  } else {
+    try {
+      await runAgentPipeline(roomId, actorId, {
+        focusQuestion: question
+      });
+      refreshState = "ran";
+    } catch (error) {
+      refreshState = error instanceof RateLimitError ? "cooldown" : "failed";
+    }
   }
 
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     select: {
       claimNormalized: true,
+      agentEvents: {
+        where: {
+          step: "SOURCE_FETCH"
+        },
+        orderBy: {
+          createdAt: "desc"
+        },
+        take: 1,
+        select: {
+          detail: true
+        }
+      },
       evidence: {
         where: { removedAt: null },
         orderBy: { createdAt: "desc" },
-        take: 10,
+        take: 50,
         select: {
           id: true,
           sourceName: true,
@@ -1422,15 +2270,29 @@ export async function generateAgentChatResponse(roomId: string, questionRaw: str
     throw new Error("Room not found");
   }
 
-  const rowsForAssessment = room.evidence.map((item) => ({
+  const usableEvidence = room.evidence.filter(
+    (item) =>
+      !isGroundingRedirectHost(item.sourceUrl) &&
+      isLikelyRelevantSource(
+        room.claimNormalized,
+        {
+          title: item.sourceName,
+          url: item.sourceUrl,
+          snippet: item.snippet
+        },
+        question || undefined
+      )
+  );
+
+  const usableRowsForAssessment = usableEvidence.map((item) => ({
     sourceUrl: item.sourceUrl,
     snippet: item.snippet,
     stance: item.stance
   }));
 
-  const assessment = await assessEvidence(room.claimNormalized, rowsForAssessment);
+  const assessment = await assessEvidence(room.claimNormalized, usableRowsForAssessment);
 
-  const rankedEvidence = [...room.evidence].sort((a, b) => {
+  const rankedEvidence = [...usableEvidence].sort((a, b) => {
     const rankDiff = evidenceRankForPrompt(a.stance, promptLower) - evidenceRankForPrompt(b.stance, promptLower);
 
     if (rankDiff !== 0) {
@@ -1441,6 +2303,14 @@ export async function generateAgentChatResponse(roomId: string, questionRaw: str
   });
 
   const selectedProofs = rankedEvidence.slice(0, 4);
+  const understandingRows = rankedEvidence.slice(0, 6).map((item) => ({
+    sourceName: item.sourceName,
+    sourceUrl: item.sourceUrl,
+    stance: item.stance,
+    snippet: item.snippet
+  }));
+  const summariesByUrl = await buildEvidenceLinkUnderstanding(room.claimNormalized, question, understandingRows);
+
   const narrative = await buildGeminiChatNarrative(
     room.claimNormalized,
     question,
@@ -1463,31 +2333,46 @@ export async function generateAgentChatResponse(roomId: string, questionRaw: str
     ? `Gemini agent is not configured (missing GEMINI_API_KEY). ${fallbackEvidenceDetail}`
     : `My current take is ${assessment.verdict} with ${assessment.confidence} confidence. ${fallbackEvidenceDetail}`;
 
+  const stanceRows = usableEvidence.map((item) => ({
+    sourceName: item.sourceName,
+    sourceUrl: item.sourceUrl,
+    stance: item.stance,
+    snippet: item.snippet
+  }));
+
+  const linkUnderstandingSection = formatLinkUnderstandingSection(stanceRows, summariesByUrl);
   const sourceSummary = buildStanceGroupedLinks(
-    room.evidence.map((item) => ({
+    usableEvidence.map((item) => ({
       sourceName: item.sourceName,
       sourceUrl: item.sourceUrl,
-      stance: item.stance
-    }))
+      stance: item.stance,
+      snippet: item.snippet
+    })),
+    summariesByUrl
   );
+  const sourceStatusNote = !usableEvidence.length ? formatGroundingStatusNote(room.agentEvents[0]?.detail ?? "") : null;
+
+  const hasGroundingModelConfigured = getGeminiGroundingCandidateModels().length > 0;
 
   const providerNote = env.GEMINI_API_KEY
-    ? "Web retrieval mode: Gemini grounding search (with automatic provider fallback if needed)."
-    : !env.BRAVE_SEARCH_API_KEY
-      ? "Using DuckDuckGo fallback search because BRAVE_SEARCH_API_KEY is missing. Coverage may be narrower than Brave."
-      : null;
+    ? hasGroundingModelConfigured
+      ? "Web retrieval mode: Gemini grounding search only."
+      : "Web retrieval mode: disabled for current model config (no grounding-capable Gemini model)."
+    : "Web retrieval is unavailable because GEMINI_API_KEY is missing.";
 
   const refreshNote = formatRefreshNote(refreshState);
-  const opinionText = [narrative ?? fallbackNarrative, sourceSummary, providerNote, refreshNote]
+  const opinionSection = `Opinion summary: ${narrative ?? fallbackNarrative}`;
+  const opinionText = [linkUnderstandingSection, opinionSection, sourceSummary, sourceStatusNote, providerNote, refreshNote]
     .filter(Boolean)
     .join("\n\n");
+  const replyMaxLength = Math.min(12000, Math.max(2200, 1500 + usableEvidence.length * 220));
 
   const wantsExplicitProofs = /\b(proof|proofs|evidence|source|sources|cite|citations|why)\b/.test(promptLower);
   const proofNotes = wantsExplicitProofs
     ? selectedProofs.slice(0, 2).map((item, index) => ({
         evidenceId: item.id,
         body: sanitizeChatBody(
-          `Proof ${index + 1}: ${item.sourceName} (${item.stance}) says ${sanitizeSnippet(item.snippet, 200)} Source: ${item.sourceUrl}`,
+          `Proof ${index + 1}: ${item.sourceName} (${item.stance}) says ${summariesByUrl.get(item.sourceUrl) ?? sanitizeSnippet(item.snippet, 200)} Source: ${item.sourceUrl}`,
           360
         )
       }))
@@ -1495,7 +2380,7 @@ export async function generateAgentChatResponse(roomId: string, questionRaw: str
 
   return {
     blocked: false,
-    replyText: sanitizeChatBody(opinionText, 1900),
+    replyText: sanitizeChatBody(opinionText, replyMaxLength),
     proofNotes
   };
 }
